@@ -1,0 +1,95 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "mongodb"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  email     String   @unique
+  password  String
+  name      String?
+  role      String   @default("student") // student, admin
+  createdAt DateTime @default(now())
+
+  enrollments Enrollment[]
+  progress    Progress[]
+  payments    Payment[]
+}
+
+model Course {
+  id           String  @id @default(auto()) @map("_id") @db.ObjectId
+  title        String
+  description  String?
+  price        String
+  published    Boolean @default(false)
+  instructorId String // Placeholder for single instructor concept
+
+  sections    Section[]
+  enrollments Enrollment[]
+  payments    Payment[]
+}
+
+model Section {
+  id       String    @id @default(auto()) @map("_id") @db.ObjectId
+  title    String
+  courseId String    @db.ObjectId
+  course   Course    @relation(fields: [courseId], references: [id])
+  lectures Lecture[]
+}
+
+model Lecture {
+  id        String     @id @default(auto()) @map("_id") @db.ObjectId
+  title     String
+  videoUrl  String
+  sectionId String     @db.ObjectId
+  section   Section    @relation(fields: [sectionId], references: [id])
+  progress  Progress[]
+}
+
+model Enrollment {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  userId    String   @db.ObjectId
+  courseId  String   @db.ObjectId
+  createdAt DateTime @default(now())
+
+  user   User   @relation(fields: [userId], references: [id])
+  course Course @relation(fields: [courseId], references: [id])
+
+  @@unique([userId, courseId]) // Prevent double enrollment
+}
+
+model Progress {
+  id        String  @id @default(auto()) @map("_id") @db.ObjectId
+  userId    String  @db.ObjectId
+  lectureId String  @db.ObjectId
+  completed Boolean @default(false)
+
+  user    User    @relation(fields: [userId], references: [id])
+  lecture Lecture @relation(fields: [lectureId], references: [id])
+
+  @@unique([userId, lectureId])
+}
+
+model Payment {
+  id         String   @id @default(auto()) @map("_id") @db.ObjectId
+  userId     String   @db.ObjectId
+  courseId   String   @db.ObjectId
+  amount     String
+  status     String // COMPLETED, FAILED, PENDING
+  providerId String // Stripe Intent ID
+  createdAt  DateTime @default(now())
+
+  user   User   @relation(fields: [userId], references: [id])
+  course Course @relation(fields: [courseId], references: [id])
+}
