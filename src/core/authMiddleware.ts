@@ -25,3 +25,10 @@ export const requireAuth = (req: AuthRequest, res: Response, next: NextFunction)
     req.user = payload;
     next();
 };
+
+export const requireAdmin = (req: AuthRequest, res: Response, next: NextFunction) => {
+    if (!req.user || req.user.role !== 'admin') {
+        return res.status(403).json({ success: false, error: 'Forbidden: Admin access required' });
+    }
+    next();
+};
