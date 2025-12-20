@@ -1,0 +1,30 @@
+services:
+  backend:
+    build: .
+    container_name: vastu_backend
+    restart: always
+    ports:
+      - "3000:3000"
+    env_file:
+      - .env
+    networks:
+      - vastu_network
+
+  nginx:
+    image: nginx:alpine
+    container_name: vastu_nginx
+    restart: always
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf
+      - ./certs:/etc/nginx/certs
+    depends_on:
+      - backend
+    networks:
+      - vastu_network
+
+networks:
+  vastu_network:
+    driver: bridge
