@@ -12,15 +12,15 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@v4
     
-    - name: Build  and push Docker image
+    - name: Build and push Docker image
       uses: mr-smithers-excellent/docker-build-push@v5
       with:
-        image: "wizcoderr/vastubackend:latest"
+        image: "wizcoderr/vastubackend"
         registry: "docker.io"
         username: ${{ secrets.DOCKER_HUB_USERNAME }}
         password: ${{ secrets.DOCKER_HUB_PASSWORD }}
         dockerfile: ./Dockerfile
-        tags: latest
+        tags: latest,${{ github.sha }}
 
     - name: Trigger Render Deploy Hook
       env:
