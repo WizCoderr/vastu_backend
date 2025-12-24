@@ -40,4 +40,16 @@ app.get('/', (req, res) => {
     res.json({ message: 'Welcome to Vastu Backend API', version: '1.0.0' });
 });
 
+// Global error handler
+import { NextFunction, Request, Response } from 'express';
+import logger from './utils/logger';
+
+app.use((err: any, req: Request, res: Response, next: NextFunction) => {
+    logger.error('Unhandled error', { error: err });
+    res.status(500).json({
+        success: false,
+        error: process.env.NODE_ENV === 'production' ? 'Internal Server Error' : err.message || 'Unknown Error'
+    });
+});
+
 export default app;
