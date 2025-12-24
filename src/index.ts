@@ -1,23 +1,21 @@
-// Load balancer disabled by user request
-// import cluster from 'node:cluster';
-// import os from 'node:os';
+import cluster from 'node:cluster';
+import os from 'node:os';
 import app from './app';
 import { config } from './config';
 import logger from './utils/logger';
 
-// const startServer = () => {
-app.listen(config.port, () => {
-    logger.info(`Server started on port ${config.port}`);
-});
-// };
+const startServer = () => {
+    app.listen(config.port, () => {
+        logger.info(`Server started on port ${config.port}`);
+    });
+};
 
-/*
+
 if (cluster.isPrimary) {
     const numCPUs = os.cpus().length;
     logger.info(`Master ${process.pid} is running`);
     logger.info(`Forking ${numCPUs} workers...`);
 
-    // Fork workers.
     for (let i = 0; i < numCPUs; i++) {
         cluster.fork();
     }
@@ -27,8 +25,5 @@ if (cluster.isPrimary) {
         cluster.fork();
     });
 } else {
-    // Workers can share any TCP connection
-    // In this case it is an HTTP server
     startServer();
 }
-*/
