@@ -6,6 +6,7 @@ import authRoutes from './routes/auth.routes';
 import studentRoutes from './routes/student.routes';
 import paymentRoutes from './routes/payment.routes';
 import instructorRoutes from './routes/instructor.routes';
+import adminRoutes from './routes/admin.routes';
 import publicRoutes from './routes/public.routes';
 
 const app = express();
@@ -28,6 +29,7 @@ app.use('/api/public', publicRoutes); // /api/public/courses
 app.use('/auth', authRoutes); // /auth/register, /auth/login
 app.use('/api/student', studentRoutes); // /api/student/courses
 app.use('/api/instructor', instructorRoutes); // /api/instructor/courses
+app.use('/api/admin', adminRoutes); // /api/admin/enroll
 app.use('/api/payments', paymentRoutes); // /api/payments/create-intent
 
 // Serve uploaded files

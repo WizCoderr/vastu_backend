@@ -76,6 +76,13 @@ Mark a lesson or item as completed.
 
 ---
 
+### Logout
+Invalidate the JWT token for a student.
+
+- **Endpoint:** `POST /logout`
+- **Headers:** `Authorization: Bearer <token>`
+- **Response:** `200 OK` with `{ message: "Logged out" }`
+
 ## Payments
 **Base URL:** `/api/payments`
 **Auth Required:** Yes

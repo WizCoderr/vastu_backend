@@ -1,8 +1,8 @@
 # Admin / Instructor Routes
 
-All routes under `/api/instructor` require **Admin Authentication** (valid JWT with admin role).
+All routes under `/api/instructor` and `/api/admin` require **Admin Authentication** (valid JWT with admin role).
 
-## Base URL
+## Base URL (Instructor)
 `{{baseUrl}}/api/instructor`
 
 ## Courses
@@ -55,3 +55,27 @@ Creates a new lecture within a section and uploads a video file.
   - `title`: Lecture Title (text)
   - `video`: Video File (file)
 - **Response:** `201 Created` with the created lecture object.
+
+## Admin Management
+
+### Base URL
+`{{baseUrl}}/api/admin`
+
+### Enroll Student
+Manually enrolls a student in a course.
+- **Method:** `POST`
+- **Endpoint:** `/enroll`
+- **Body:**
+  ```json
+  {
+    "userId": "User ID",
+    "courseId": "Course ID"
+  }
+  ```
+- **Response:** `200 OK` with enrollment details.
+
+### List Students
+Retrieves all registered students.
+- **Method:** `GET`
+- **Endpoint:** `/students`
+- **Response:** `200 OK` with list of students.
