@@ -16,8 +16,23 @@ router.get('/courses', requireAdmin, InstructorIntent.getInstructorCourses);
 // Create a section in a course
 router.post('/courses/:courseId/sections', requireAdmin, InstructorIntent.createSection);
 
-// Create a lecture in a section (with video upload)
-router.post('/sections/:sectionId/lectures', requireAdmin, uploadVideo.single('video'), InstructorIntent.createLecture);
+router.post('/sections/:sectionId/lectures',
+    requireAdmin,
+    (req, res, next) => {
+        uploadVideo.single('video')(req, res, (err) => {
+            if (err) {
+                console.error("❌ Video Upload Error:", err);
+                return res.status(400).json({
+                    error: 'Video upload failed',
+                    details: err.message
+                });
+            }
+            console.log(req.file ? `✅ File uploaded: ${req.file.originalname}` : '⚠️ No file uploaded');
+            next();
+        });
+    },
+    InstructorIntent.createLecture
+);
 
 // Admin logout (invalidate token)
 router.post('/logout', requireAdmin, AuthIntent.logout);

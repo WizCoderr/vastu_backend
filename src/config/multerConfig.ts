@@ -19,16 +19,13 @@ const videoStorage = new CloudinaryStorage({
     cloudinary: cloudinary,
     params: {
         folder: 'vastu-courses/videos',
-        resource_type: 'video',
+        resource_type: 'auto',
         allowed_formats: ['mp4', 'mkv', 'mov', 'avi']
     } as any
 });
 
 export const uploadVideo = multer({
-    storage: videoStorage,
-    limits: {
-        fileSize: 1024 * 1024 * 500 // 500MB
-    }
+    storage: videoStorage
 });
 
 const imageStorage = new CloudinaryStorage({
@@ -41,8 +38,5 @@ const imageStorage = new CloudinaryStorage({
 });
 
 export const uploadImage = multer({
-    storage: imageStorage,
-    limits: {
-        fileSize: 1024 * 1024 * 5 // 5MB
-    }
+    storage: imageStorage
 });
