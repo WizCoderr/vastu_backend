@@ -2,9 +2,9 @@ import { prisma } from "../core/prisma";
 import bcrypt from 'bcryptjs';
 
 async function createAdmin() {
-    const email = "admin@edu.com";
-    const password = "password";
-    const name = "System Admin";
+    const email = "vastuarunsharma105@gmail.com";
+    const password = "arun@sharma105";
+    const name = "Arun Sharma";
 
     console.log(`Attempting to create admin: ${email}...`);
 
