@@ -12,7 +12,9 @@ const startServer = () => {
 
 
 if (cluster.isPrimary) {
-    const numCPUs = os.cpus().length;
+    // Default to 1 worker if not specified, to avoid OOM on small instances
+    // Use WEB_CONCURRENCY or WORKERS env var to override
+    const numCPUs = process.env.WEB_CONCURRENCY ? parseInt(process.env.WEB_CONCURRENCY) : (process.env.WORKERS ? parseInt(process.env.WORKERS) : 1);
     logger.info(`Master ${process.pid} is running`);
     logger.info(`Forking ${numCPUs} workers...`);
 
