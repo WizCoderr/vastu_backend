@@ -11,28 +11,48 @@ export class InstructorIntent {
             const schema = z.object({
                 title: z.string().min(3),
                 description: z.string().optional(),
-                price: z.string(),
-                // In a real app, instructorId would come from the authenticated user
+                price: z.coerce.string(),
                 instructorId: z.string()
             });
 
             const data = schema.parse(req.body);
+
+            const thumbnail = req.file ? req.file.path : undefined;
 
             const course = await prisma.course.create({
                 data: {
                     title: data.title,
                     description: data.description,
                     price: data.price,
+                    thumbnail: thumbnail,
                     instructorId: data.instructorId,
-                    published: false
+                    published: true
                 }
             });
 
             logger.info('InstructorIntent.createCourse: Course created successfully', { courseId: course.id });
             res.status(201).json(course);
-        } catch (error) {
+        } catch (error: any) {
             logger.error('InstructorIntent.createCourse: Failed to create course', { error });
-            res.status(400).json({ error: 'Failed to create course' });
+            res.status(400).json({
+                error: 'Failed to create course',
+                details: error instanceof z.ZodError ? error : error.message
+            });
+        }
+    }
+
+    static async getInstructorCourses(req: Request, res: Response) {
+        logger.info('InstructorIntent.getInstructorCourses: Listing all courses for instructor');
+        try {
+            // Since this is an admin route, we list all courses regardless of published status
+            const courses = await prisma.course.findMany({
+                orderBy: { id: 'desc' }
+            });
+
+            res.json(courses);
+        } catch (error) {
+            logger.error('InstructorIntent.getInstructorCourses: Failed to list courses', { error });
+            res.status(500).json({ error: 'Failed to list courses' });
         }
     }
 

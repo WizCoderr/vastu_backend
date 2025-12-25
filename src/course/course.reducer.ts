@@ -4,9 +4,24 @@ import { CourseDto } from './course.dto';
 
 export class CourseReducer {
     static async listCourses(): Promise<Result<CourseDto[]>> {
-        const courses = await prisma.course.findMany({
-            where: { published: true },
+        const courses = await prisma.course.findMany();
+
+        // Map Decimal to number for DTO
+        const dtos = courses.map(c => ({
+            ...c,
+            price: Number(c.price),
+        }));
+
+        return Result.ok(dtos);
+    }
+
+    static async listEnrolledCourses(userId: string): Promise<Result<CourseDto[]>> {
+        const enrollments = await prisma.enrollment.findMany({
+            where: { userId },
+            include: { course: true },
         });
+
+        const courses = enrollments.map(e => e.course);
 
         // Map Decimal to number for DTO
         const dtos = courses.map(c => ({

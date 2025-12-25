@@ -3,6 +3,8 @@ import { registerSchema, loginSchema } from './auth.dto';
 import { AuthReducer } from "./auth.reducer";
 import { Result } from '../core/result';
 import logger from '../utils/logger';
+import { blacklistToken } from '../core/jwt';
+import { AuthRequest } from '../core/authMiddleware';
 
 export class AuthIntent {
     static async register(req: Request, res: Response) {
@@ -48,5 +50,16 @@ export class AuthIntent {
             logger.warn('AuthIntent.login: Login failed', { error: result.error });
             return res.status(401).json(result);
         }
+    }
+
+    static logout(req: AuthRequest, res: Response) {
+        logger.info('AuthIntent.logout: Attempting logout', { userId: req.user?.userId });
+        const authHeader = req.headers.authorization;
+        if (authHeader && authHeader.startsWith('Bearer ')) {
+            const token = authHeader.split(' ')[1];
+            blacklistToken(token);
+            logger.info('AuthIntent.logout: Token blacklisted', { userId: req.user?.userId });
+        }
+        return res.status(200).json(Result.ok({ message: 'Logged out' }));
     }
 }

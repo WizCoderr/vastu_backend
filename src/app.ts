@@ -6,6 +6,7 @@ import authRoutes from './routes/auth.routes';
 import studentRoutes from './routes/student.routes';
 import paymentRoutes from './routes/payment.routes';
 import instructorRoutes from './routes/instructor.routes';
+import publicRoutes from './routes/public.routes';
 
 const app = express();
 
@@ -22,6 +23,8 @@ app.use('/api/payments/webhook', express.raw({ type: 'application/json' }));
 app.use(express.json());
 
 // Routes
+app.use('/api/public', publicRoutes); // /api/public/courses
+
 app.use('/auth', authRoutes); // /auth/register, /auth/login
 app.use('/api/student', studentRoutes); // /api/student/courses
 app.use('/api/instructor', instructorRoutes); // /api/instructor/courses

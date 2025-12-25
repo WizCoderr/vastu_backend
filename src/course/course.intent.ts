@@ -11,6 +11,16 @@ export class CourseIntent {
         res.json(result);
     }
 
+    static async listEnrolledCourses(req: AuthRequest, res: Response) {
+        if (!req.user) {
+            return res.status(401).json(Result.fail('Unauthorized'));
+        }
+
+        logger.info('CourseIntent.listEnrolledCourses: listing enrolled courses', { userId: req.user.userId });
+        const result = await CourseReducer.listEnrolledCourses(req.user.userId);
+        res.json(result);
+    }
+
     static async getCourse(req: AuthRequest, res: Response) {
         const { id } = req.params;
         // We can allow viewing details without auth, but getUser if available?

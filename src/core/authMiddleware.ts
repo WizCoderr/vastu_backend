@@ -27,6 +27,18 @@ export const requireAuth = (req: AuthRequest, res: Response, next: NextFunction)
 };
 
 export const requireAdmin = (req: AuthRequest, res: Response, next: NextFunction) => {
+    // If req.user is not set (e.g., requireAuth not used), try to verify token here
+    if (!req.user) {
+        const authHeader = req.headers.authorization;
+        if (authHeader && authHeader.startsWith('Bearer ')) {
+            const token = authHeader.split(' ')[1];
+            const payload = verifyToken(token);
+            if (payload) {
+                req.user = payload;
+            }
+        }
+    }
+
     if (!req.user || req.user.role !== 'admin') {
         return res.status(403).json({ success: false, error: 'Forbidden: Admin access required' });
     }

@@ -77,6 +77,30 @@
             ]
         },
         {
+            "name": "Public",
+            "item": [
+                {
+                    "name": "List All Courses",
+                    "request": {
+                        "method": "GET",
+                        "header": [],
+                        "url": {
+                            "raw": "{{baseUrl}}/api/public/courses",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "api",
+                                "public",
+                                "courses"
+                            ]
+                        }
+                    },
+                    "response": []
+                }
+            ]
+        },
+        {
             "name": "Instructor",
             "item": [
                 {
@@ -190,6 +214,35 @@
         {
             "name": "Student",
             "item": [
+                {
+                    "name": "Enrolled Courses",
+                    "request": {
+                        "auth": {
+                            "type": "bearer",
+                            "bearer": [
+                                {
+                                    "key": "token",
+                                    "value": "{{token}}",
+                                    "type": "string"
+                                }
+                            ]
+                        },
+                        "method": "GET",
+                        "header": [],
+                        "url": {
+                            "raw": "{{baseUrl}}/api/student/enrolled-courses",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "api",
+                                "student",
+                                "enrolled-courses"
+                            ]
+                        }
+                    },
+                    "response": []
+                },
                 {
                     "name": "List Courses",
                     "request": {
@@ -403,7 +456,7 @@
     "variable": [
         {
             "key": "baseUrl",
-            "value": "http://localhost:3000",
+            "value": "https://642545d0bbd7.ngrok-free.app",
             "type": "string"
         },
         {
