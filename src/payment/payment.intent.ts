@@ -5,49 +5,55 @@ import { Result } from '../core/result';
 import logger from '../utils/logger';
 
 export class PaymentIntent {
-    static async createIntent(req: AuthRequest, res: Response) {
-        if (!req.user) {
-            logger.warn('PaymentIntent.createIntent: Unauthorized access attempt');
-            return res.status(401).json(Result.fail('Unauthorized'));
-        }
 
-        const { courseId } = req.body;
-        if (!courseId) {
-            logger.warn('PaymentIntent.createIntent: Missing courseId', { userId: req.user.userId });
-            return res.status(400).json(Result.fail('Course ID is required'));
-        }
 
-        logger.info('PaymentIntent.createIntent: Creating payment intent', { userId: req.user.userId, courseId });
-        const result = await PaymentReducer.createPaymentIntent(req.user.userId, courseId);
 
-        if (result.success) {
-            logger.info('PaymentIntent.createIntent: Payment intent created', { userId: req.user.userId, courseId });
-            res.json(result);
-        } else {
-            logger.error('PaymentIntent.createIntent: Failed to create payment intent', { userId: req.user.userId, courseId, error: result.error });
-            res.status(400).json(result);
+    static async createRazorpayOrder(req: AuthRequest, res: Response) {
+        if (!req.user) return res.status(401).json({ error: 'Unauthorized' });
+
+        try {
+            const { courseId } = req.body; // Expect courseId to look up price
+            if (!courseId) return res.status(400).json({ error: 'Missing courseId' });
+
+            const result = await PaymentReducer.createRazorpayOrder(req.user.userId, courseId);
+
+            if (result.success) {
+                res.json(result.data);
+            } else {
+                res.status(400).json({ error: result.error });
+            }
+        } catch (error) {
+            console.error('PaymentIntent.createRazorpayOrder Error:', error);
+            res.status(500).json({ error: 'Failed to create order' });
         }
     }
 
-    static async webhook(req: Request, res: Response) {
-        const signature = req.headers['stripe-signature'];
+    static async verifyRazorpayPayment(req: AuthRequest, res: Response) {
+        if (!req.user) return res.status(401).json({ error: 'Unauthorized' });
 
-        if (!signature) {
-            logger.warn('PaymentIntent.webhook: Missing Stripe signature');
-            return res.status(400).send('Missing signature');
-        }
+        try {
+            const { razorpay_order_id, razorpay_payment_id, razorpay_signature, courseId } = req.body;
 
-        logger.info('PaymentIntent.webhook: Received webhook');
+            if (!razorpay_order_id || !razorpay_payment_id || !razorpay_signature || !courseId) {
+                return res.status(400).json({ error: 'Missing valid payment details' });
+            }
 
-        // Needs raw body for verification. Ensure express app is configured to pass raw body for this route.
-        const result = await PaymentReducer.handleWebhook(signature as string, req.body);
+            const result = await PaymentReducer.verifyRazorpayPayment(
+                req.user.userId,
+                courseId,
+                razorpay_order_id,
+                razorpay_payment_id,
+                razorpay_signature
+            );
 
-        if (result.success) {
-            logger.info('PaymentIntent.webhook: Webhook handled successfully');
-            res.json({ received: true });
-        } else {
-            logger.error('PaymentIntent.webhook: Webhook handling failed', { error: result.error });
-            res.status(400).send(result.error);
+            if (result.success) {
+                res.json({ success: true, paymentId: result.data });
+            } else {
+                res.status(400).json({ error: result.error });
+            }
+        } catch (error) {
+            console.error('PaymentIntent.verifyRazorpayPayment Error:', error);
+            res.status(500).json({ error: 'Verification failed' });
         }
     }
 }

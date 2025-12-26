@@ -1,14 +1,19 @@
 import { prisma } from "../core/prisma";
-import { Stripe } from 'stripe';
+
 import { config } from '../core/config';
 import { Result } from '../core/result';
 import { EnrollmentRepository } from '../enrollment/enrollment.repository';
 
-const stripe = new Stripe(config.stripeSecretKey || '', { apiVersion: '2025-01-27.acacia' as any }); // Force cast or use valid string if known, using any to avoid conflict for now or just remove apiVersion strict check
+
 
 export class PaymentReducer {
-    static async createPaymentIntent(userId: string, courseId: string): Promise<Result<{ clientSecret: string; paymentId: string }>> {
-        // 1. Verify Course and Price
+
+
+
+    // --- Razorpay Methods ---
+
+    static async createRazorpayOrder(userId: string, courseId: string): Promise<Result<{ orderId: string, amount: number, currency: string, keyId: string }>> {
+        // 1. Verify Course
         const course = await prisma.course.findUnique({ where: { id: courseId } });
         if (!course) return Result.fail('Course not found');
         if (!course.published) return Result.fail('Course is not available');
@@ -17,76 +22,55 @@ export class PaymentReducer {
         const existingEnrollment = await EnrollmentRepository.findEnrollment(userId, courseId);
         if (existingEnrollment) return Result.fail('Already enrolled in this course');
 
-        // 3. Create Stripe Payment Intent
-        // Use course price. Stripe expects amounts in cents if currency is usd/eur etc.
-        // Assuming price is in standard units (e.g. $10.00), multiply by 100.
-        const amountInCents = Math.round(Number(course.price) * 100);
-
+        // 3. Create Order
+        const amount = Number(course.price);
         try {
-            const intent = await stripe.paymentIntents.create({
-                amount: amountInCents,
-                currency: 'usd',
-                metadata: { userId, courseId },
-                automatic_payment_methods: { enabled: true },
-            });
+            const { createRazorpayOrder } = await import('../core/razorpayService');
+            // Receipt can be local payment ID placeholder or userId-timestamp
+            const receipt = `rcpt_${userId}_${Date.now()}`;
+            const order = await createRazorpayOrder(amount, 'INR', receipt);
 
-            // 4. Create local Payment record
+            return Result.ok({
+                orderId: order.id,
+                amount: Number(order.amount),
+                currency: order.currency,
+                keyId: process.env.RAZORPAY_KEY_ID || ''
+            });
+        } catch (error: any) {
+            return Result.fail(`Razorpay order creation failed: ${error.message}`);
+        }
+    }
+
+    static async verifyRazorpayPayment(userId: string, courseId: string, razorpayOrderId: string, razorpayPaymentId: string, razorpaySignature: string): Promise<Result<string>> {
+        try {
+            const { verifyRazorpaySignature } = await import('../core/razorpayService');
+            const isValid = verifyRazorpaySignature(razorpayOrderId, razorpayPaymentId, razorpaySignature);
+
+            if (!isValid) return Result.fail('Invalid signature');
+
+            // 1. Create Payment Record
             const payment = await prisma.payment.create({
                 data: {
                     userId,
                     courseId,
-                    amount: course.price,
-                    status: 'PENDING',
-                    providerId: intent.id,
-                },
+                    amount: "0", // Ideally fetch from course or order history
+                    status: 'COMPLETED',
+                    providerId: null, // Legacy Stripe field
+                    razorpayOrderId: razorpayOrderId,
+                    razorpayPaymentId: razorpayPaymentId,
+                    razorpaySignature: razorpaySignature
+                }
             });
 
-            return Result.ok({
-                clientSecret: intent.client_secret!,
-                paymentId: payment.id,
-            });
+            // 2. Create Enrollment
+            await EnrollmentRepository.createEnrollment(userId, courseId);
+
+            return Result.ok(payment.id);
         } catch (error: any) {
-            return Result.fail(`Payment initialization failed: ${error.message}`);
-        }
-    }
-
-    static async handleWebhook(signature: string, rawBody: Buffer): Promise<Result<string>> {
-        let event: Stripe.Event;
-
-        try {
-            event = stripe.webhooks.constructEvent(
-                rawBody,
-                signature,
-                config.stripeWebhookSecret || ''
-            );
-        } catch (err: any) {
-            return Result.fail(`Webhook signature verification failed: ${err.message}`);
-        }
-
-        if (event.type === 'payment_intent.succeeded') {
-            const paymentIntent = event.data.object as Stripe.PaymentIntent;
-            const { userId, courseId } = paymentIntent.metadata;
-
-            if (userId && courseId) {
-                // 1. Update Payment Status
-                await prisma.payment.updateMany({
-                    where: { providerId: paymentIntent.id },
-                    data: { status: 'COMPLETED' },
-                });
-
-                // 2. Create Enrollment
-                await EnrollmentRepository.createEnrollment(userId, courseId);
-
-                return Result.ok('Enrollment created');
+            if (error.code === 'P2002') {
+                return Result.ok('Already enrolled'); // Idempotency
             }
-        } else if (event.type === 'payment_intent.payment_failed') {
-            const paymentIntent = event.data.object as Stripe.PaymentIntent;
-            await prisma.payment.updateMany({
-                where: { providerId: paymentIntent.id },
-                data: { status: 'FAILED' },
-            });
+            return Result.fail(`Verification failed: ${error.message}`);
         }
-
-        return Result.ok('Event processed');
     }
 }

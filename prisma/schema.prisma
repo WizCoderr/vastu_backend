@@ -36,6 +36,11 @@ model Course {
   published    Boolean @default(false)
   instructorId String // Placeholder for single instructor concept
 
+  // S3 Migration Fields
+  s3Key     String?
+  s3Bucket  String?
+  mediaType String? // "image"
+
   sections    Section[]
   enrollments Enrollment[]
   payments    Payment[]
@@ -56,6 +61,16 @@ model Lecture {
   sectionId String     @db.ObjectId
   section   Section    @relation(fields: [sectionId], references: [id])
   progress  Progress[]
+
+  // Video Provider support (Cloudinary vs Mux vs S3)
+  videoProvider String? @default("cloudinary") // "cloudinary", "mux", "s3-mux"
+  muxAssetId    String? // Mux Asset ID
+  muxPlaybackId String? // Mux Playback ID (signed)
+  muxReady      Boolean @default(false)
+
+  // S3 Migration Fields
+  s3Key    String?
+  s3Bucket String?
 }
 
 model Enrollment {
@@ -88,8 +103,13 @@ model Payment {
   courseId   String   @db.ObjectId
   amount     String
   status     String // COMPLETED, FAILED, PENDING
-  providerId String // Stripe Intent ID
+  providerId String? // Stripe Intent ID (optional now)
   createdAt  DateTime @default(now())
+
+  // Razorpay Fields
+  razorpayOrderId   String?
+  razorpayPaymentId String?
+  razorpaySignature String?
 
   user   User   @relation(fields: [userId], references: [id])
   course Course @relation(fields: [courseId], references: [id])
