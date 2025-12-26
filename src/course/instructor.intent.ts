@@ -55,7 +55,25 @@ export class InstructorIntent {
                 orderBy: { id: 'desc' }
             });
 
-            res.json(courses);
+            // Generate Presigned URLs for S3 thumbnails
+            const { getPresignedReadUrl } = await import('../core/s3Service');
+
+            const coursesWithUrls = await Promise.all(courses.map(async (course) => {
+                let thumbUrl = course.thumbnail; // Fallback to legacy
+                if (course.s3Key) {
+                    try {
+                        thumbUrl = await getPresignedReadUrl(course.s3Key, course.s3Bucket || undefined);
+                    } catch (e) {
+                        logger.error('Failed to sign thumbnail', { s3Key: course.s3Key });
+                    }
+                }
+                return {
+                    ...course,
+                    thumbnail: thumbUrl // Overwrite local response property with secure URL
+                };
+            }));
+
+            res.json(coursesWithUrls);
         } catch (error) {
             logger.error('InstructorIntent.getInstructorCourses: Failed to list courses', { error });
             res.status(500).json({ error: 'Failed to list courses' });
@@ -84,99 +102,6 @@ export class InstructorIntent {
         } catch (error) {
             logger.error('InstructorIntent.createSection: Failed to create section', { courseId, error });
             res.status(400).json({ error: 'Failed to create section' });
-        }
-    }
-
-    static async createLecture(req: Request, res: Response) {
-        const { sectionId } = req.params;
-        logger.info('InstructorIntent.createLecture: Creating lecture', { sectionId });
-        try {
-            if (!req.file) {
-                logger.warn('InstructorIntent.createLecture: No video file provided', { sectionId });
-                res.status(400).json({ error: 'Video file is required' });
-                return;
-            }
-
-            const schema = z.object({
-                title: z.string().min(3)
-            });
-
-            const data = schema.parse(req.body);
-
-            // Cloudinary storage puts the URL in 'path'
-            const videoUrl = req.file.path;
-
-            const lecture = await prisma.lecture.create({
-                data: {
-                    title: data.title,
-                    sectionId: sectionId,
-                    videoUrl: videoUrl
-                }
-            });
-
-            logger.info('InstructorIntent.createLecture: Lecture created successfully', { lectureId: lecture.id, sectionId });
-            res.status(201).json(lecture);
-
-        } catch (error) {
-            logger.error('InstructorIntent.createLecture: Failed to create lecture', { sectionId, error });
-            res.status(400).json({ error: 'Failed to create lecture' });
-        }
-    }
-
-    static async registerMuxLecture(req: Request, res: Response) {
-        const { sectionId } = req.params;
-        logger.info('InstructorIntent.registerMuxLecture: Registering Mux lecture', { sectionId });
-
-        try {
-            const schema = z.object({
-                title: z.string().min(3),
-                firebasePath: z.string().min(1)
-            });
-
-            const data = schema.parse(req.body);
-
-            // Import dynamically to avoid circular issues or just use the ones we created
-            const { verifyFirebaseFile, getSignedUrl } = await import('../core/firebaseService');
-            const { createMuxAsset } = await import('../core/muxService');
-
-            // 1. Verify file exists in Firebase
-            const exists = await verifyFirebaseFile(data.firebasePath);
-            if (!exists) {
-                logger.warn('InstructorIntent.registerMuxLecture: Firebase file not found', { path: data.firebasePath });
-                return res.status(400).json({ error: 'Video file not found in storage' });
-            }
-
-            // 2. Get ephemeral signed URL for Mux to download
-            const signedUrl = await getSignedUrl(data.firebasePath, 60); // 1 hour
-            if (!signedUrl) {
-                return res.status(500).json({ error: 'Failed to generate access URL for video processing' });
-            }
-
-            // 3. Create Mux Asset
-            const muxAsset = await createMuxAsset(signedUrl);
-
-            // 4. Create Lecture Record
-            const lecture = await prisma.lecture.create({
-                data: {
-                    title: data.title,
-                    sectionId: sectionId,
-                    videoUrl: data.firebasePath, // Store source path as videoUrl for reference
-                    videoProvider: 'mux',
-                    muxAssetId: muxAsset.id,
-                    muxPlaybackId: muxAsset.playback_ids?.[0]?.id, // Usually created by default, but might be empty initially
-                    muxReady: false // Webhook would ideally update this, or polling
-                }
-            });
-
-            logger.info('InstructorIntent.registerMuxLecture: Mux lecture registered', { lectureId: lecture.id, muxAssetId: muxAsset.id });
-            res.status(201).json(lecture);
-
-        } catch (error: any) {
-            logger.error('InstructorIntent.registerMuxLecture: Failed to register lecture', { sectionId, error });
-            res.status(400).json({
-                error: 'Failed to register lecture',
-                details: error instanceof z.ZodError ? error : error.message
-            });
         }
     }
 
@@ -228,7 +153,7 @@ export class InstructorIntent {
                 data: {
                     title,
                     sectionId,
-                    videoUrl: inputUrl, // Temporary or fallback
+                    videoUrl: `s3://${s3Bucket || process.env.AWS_BUCKET_NAME}/${s3Key}`, // Store S3 URI reference
                     videoProvider: 's3-mux',
                     s3Key,
                     s3Bucket: s3Bucket || process.env.AWS_BUCKET_NAME,

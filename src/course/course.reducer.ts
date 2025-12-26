@@ -5,12 +5,14 @@ import { CourseDto } from './course.dto';
 export class CourseReducer {
     static async listCourses(): Promise<Result<CourseDto[]>> {
         const courses = await prisma.course.findMany();
+        const { getPresignedReadUrl } = await import('../core/s3Service');
 
-        // Map Decimal to number for DTO
-        const dtos = courses.map(c => ({
+        // Map Decimal to number for DTO & Sign URLs
+        const dtos = await Promise.all(courses.map(async (c) => ({
             ...c,
             price: Number(c.price),
-        }));
+            thumbnail: c.s3Key ? await getPresignedReadUrl(c.s3Key, c.s3Bucket || undefined).catch(() => c.thumbnail) : c.thumbnail
+        })));
 
         return Result.ok(dtos);
     }
@@ -23,11 +25,14 @@ export class CourseReducer {
 
         const courses = enrollments.map(e => e.course);
 
+        const { getPresignedReadUrl } = await import('../core/s3Service');
+
         // Map Decimal to number for DTO
-        const dtos = courses.map(c => ({
+        const dtos = await Promise.all(courses.map(async (c) => ({
             ...c,
             price: Number(c.price),
-        }));
+            thumbnail: c.s3Key ? await getPresignedReadUrl(c.s3Key, c.s3Bucket || undefined).catch(() => c.thumbnail) : c.thumbnail
+        })));
 
         return Result.ok(dtos);
     }
@@ -48,9 +53,15 @@ export class CourseReducer {
             },
         });
 
+        const { getPresignedReadUrl } = await import('../core/s3Service');
+        const signedThumbnail = course.s3Key
+            ? await getPresignedReadUrl(course.s3Key, course.s3Bucket || undefined).catch(() => course.thumbnail)
+            : course.thumbnail;
+
         return Result.ok({
             ...course,
             price: Number(course.price),
+            thumbnail: signedThumbnail,
             isEnrolled: !!enrollment,
         });
     }

@@ -19,8 +19,6 @@ router.post('/courses/:courseId/sections', requireAdmin, InstructorIntent.create
 
 
 
-router.post('/courses/:courseId/sections/:sectionId/lectures/register-mux', requireAdmin, InstructorIntent.registerMuxLecture as RequestHandler);
-
 // --- S3 Migration Endpoints ---
 
 // Get S3 Pre-signed URL for Upload
