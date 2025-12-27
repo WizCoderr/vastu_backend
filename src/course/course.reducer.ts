@@ -75,7 +75,7 @@ export class CourseReducer {
         return Result.ok(dtos);
     }
 
-    static async getCourseDetail(courseId: string, userId: string): Promise<Result<CourseDto>> {
+    static async getCourseDetail(courseId: string, userId?: string): Promise<Result<CourseDto>> {
         const course = await prisma.course.findUnique({
             where: { id: courseId },
             include: {
@@ -90,14 +90,17 @@ export class CourseReducer {
 
         if (!course) return Result.fail('Course not found');
 
-        const enrollment = await prisma.enrollment.findUnique({
-            where: {
-                userId_courseId: {
-                    userId,
-                    courseId,
+        let enrollment = null;
+        if (userId) {
+            enrollment = await prisma.enrollment.findUnique({
+                where: {
+                    userId_courseId: {
+                        userId,
+                        courseId,
+                    },
                 },
-            },
-        });
+            });
+        }
 
         const { getPresignedReadUrl } = await import('../core/s3Service');
         const signedThumbnail = course.s3Key
@@ -116,10 +119,10 @@ export class CourseReducer {
         })));
 
         const resources = await Promise.all(course.courseResources.map(async (r) => {
-            // Access control: if PAID and not enrolled and not instructor/admin (we only have userId here)
-            // simplified: if PAID and !enrollment and userId !== course.instructorId
-            // Note: Is instructor check robust enough?
-            if (r.type === 'PAID' && !enrollment && userId !== course.instructorId) {
+            const isInstructor = userId ? userId === course.instructorId : false;
+            // Access control: if PAID and not (enrolled OR instructor), hide it.
+            // If userId is missing, enrollment & isInstructor are false/null, so PAID is hidden.
+            if (r.type === 'PAID' && !enrollment && !isInstructor) {
                 return null;
             }
             const url = r.s3Key ? await getPresignedReadUrl(r.s3Key, r.s3Bucket || undefined).catch(() => '') : '';

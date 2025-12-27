@@ -44,3 +44,15 @@ export const requireAdmin = (req: AuthRequest, res: Response, next: NextFunction
     }
     next();
 };
+
+export const extractUser = (req: AuthRequest, res: Response, next: NextFunction) => {
+    const authHeader = req.headers.authorization;
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+        const token = authHeader.split(' ')[1];
+        const payload = verifyToken(token);
+        if (payload) {
+            req.user = payload;
+        }
+    }
+    next();
+};

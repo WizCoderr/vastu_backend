@@ -24,17 +24,13 @@ export class CourseIntent {
 
     static async getCourse(req: AuthRequest, res: Response) {
         const { id } = req.params;
-        // We can allow viewing details without auth, but getUser if available?
-        // Requirement said: "STUDENT (JWT PROTECTED)" for these routes.
-        // So we assume req.user is populated by middleware.
+        // Public access allowed, optionally authenticated
+        // User might not be populated if not logged in
 
-        if (!req.user) {
-            logger.warn('CourseIntent.getCourse: Unauthorized access attempt', { courseId: id });
-            return res.status(401).json(Result.fail('Unauthorized'));
-        }
+        const userId = req.user?.userId;
 
-        logger.info('CourseIntent.getCourse: Fetching course details', { courseId: id, userId: req.user.userId });
-        const result = await CourseReducer.getCourseDetail(id, req.user.userId);
+        logger.info('CourseIntent.getCourse: Fetching course details', { courseId: id, userId: userId || 'public' });
+        const result = await CourseReducer.getCourseDetail(id, userId);
 
         if (result.success) {
             return res.json(result);

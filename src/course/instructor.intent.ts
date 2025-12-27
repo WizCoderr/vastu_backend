@@ -218,4 +218,54 @@ export class InstructorIntent {
             res.status(500).json({ error: 'Failed to delete course' });
         }
     }
+
+    // List all resources for a course
+    static async getCourseResources(req: Request, res: Response) {
+        const { courseId } = req.params;
+        try {
+            const resources = await prisma.courseResource.findMany({
+                where: { courseId }
+            });
+
+            const { getPresignedReadUrl } = await import('../core/s3Service');
+
+            const resourcesWithUrls = await Promise.all(resources.map(async (r) => {
+                let url = '';
+                try {
+                    url = await getPresignedReadUrl(r.s3Key, r.s3Bucket);
+                } catch (e) {
+                    console.error('Failed to sign resource URL', e);
+                }
+                return { ...r, url };
+            }));
+
+            res.json(resourcesWithUrls);
+        } catch (error) {
+            logger.error('Failed to get course resources', { error });
+            res.status(500).json({ error: 'Failed to get resources' });
+        }
+    }
+
+    // Delete a specific resource
+    static async deleteResource(req: Request, res: Response) {
+        const { resourceId } = req.params;
+        try {
+            const resource = await prisma.courseResource.findUnique({ where: { id: resourceId } });
+            if (!resource) {
+                return res.status(404).json({ error: 'Resource not found' });
+            }
+
+            // Delete from S3
+            const { deleteObject } = await import('../core/s3Service');
+            await deleteObject(resource.s3Key, resource.s3Bucket);
+
+            // Delete from DB
+            await prisma.courseResource.delete({ where: { id: resourceId } });
+
+            res.json({ success: true, message: 'Resource deleted' });
+        } catch (error) {
+            logger.error('Failed to delete resource', { error });
+            res.status(500).json({ error: 'Failed to delete resource' });
+        }
+    }
 }
