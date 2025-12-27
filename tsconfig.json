@@ -17,6 +17,12 @@
     }
   },
   "include": [
-    "src/**/*"
+    "src/**/*",
+    "scripts/create_admin.ts",
+    "scripts/debug_login.ts",
+    "scripts/test_routes.ts",
+    "scripts/test-s3.ts",
+    "scripts/verify_admin_auth.ts",
+    "scripts/verify_enrollment.ts"
   ]
 }

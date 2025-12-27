@@ -10,19 +10,26 @@ export class EnrollmentRepository {
     }
 
     static async createEnrollment(userId: string, courseId: string) {
-        // Idempotent creation (Add-only)
-        // Using upsert or ignore if exists, but requirements say "Enrollment is ADD-ONLY"
-        // and "Enrollment has UNIQUE(userId, courseId)"
-
-        // Check first to avoid error or use try/catch
+     
         const existing = await this.findEnrollment(userId, courseId);
         if (existing) return existing;
 
-        return prisma.enrollment.create({
+        const enrollment = await prisma.enrollment.create({
             data: {
                 userId,
                 courseId,
             },
         });
+
+        await prisma.user.update({
+            where: { id: userId },
+            data: {
+                enrolledCourseIds: {
+                    push: courseId
+                }
+            }
+        });
+
+        return enrollment;
     }
 }

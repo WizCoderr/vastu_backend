@@ -1,4 +1,4 @@
-{
+update {
     "info": {
         "_postman_id": "vastu-backend-collection",
         "name": "Vastu Backend API",
@@ -43,7 +43,11 @@
                             "script": {
                                 "exec": [
                                     "var jsonData = pm.response.json();",
-                                    "pm.environment.set(\"token\", jsonData.token);"
+                                    "if(jsonData.data && jsonData.data.token) {",
+                                    "    pm.environment.set(\"token\", jsonData.data.token);",
+                                    "} else if (jsonData.token) {",
+                                    "    pm.environment.set(\"token\", jsonData.token);",
+                                    "}"
                                 ],
                                 "type": "text/javascript"
                             }
@@ -69,6 +73,34 @@
                             "path": [
                                 "auth",
                                 "login"
+                            ]
+                        }
+                    },
+                    "response": []
+                },
+                {
+                    "name": "Get User Profile",
+                    "request": {
+                        "auth": {
+                            "type": "bearer",
+                            "bearer": [
+                                {
+                                    "key": "token",
+                                    "value": "{{token}}",
+                                    "type": "string"
+                                }
+                            ]
+                        },
+                        "method": "GET",
+                        "header": [],
+                        "url": {
+                            "raw": "{{baseUrl}}/auth/me",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "auth",
+                                "me"
                             ]
                         }
                     },
@@ -106,6 +138,16 @@
                 {
                     "name": "Create Course",
                     "request": {
+                        "auth": {
+                            "type": "bearer",
+                            "bearer": [
+                                {
+                                    "key": "token",
+                                    "value": "{{token}}",
+                                    "type": "string"
+                                }
+                            ]
+                        },
                         "method": "POST",
                         "header": [
                             {
@@ -132,8 +174,57 @@
                     "response": []
                 },
                 {
+                    "name": "Get Presigned URL (S3)",
+                    "request": {
+                        "auth": {
+                            "type": "bearer",
+                            "bearer": [
+                                {
+                                    "key": "token",
+                                    "value": "{{token}}",
+                                    "type": "string"
+                                }
+                            ]
+                        },
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n    \"fileName\": \"my-video.mp4\",\n    \"fileType\": \"video/mp4\"\n}"
+                        },
+                        "url": {
+                            "raw": "{{baseUrl}}/api/instructor/upload/presigned-url",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "api",
+                                "instructor",
+                                "upload",
+                                "presigned-url"
+                            ]
+                        }
+                    },
+                    "response": []
+                },
+                {
                     "name": "Create Section",
                     "request": {
+                        "auth": {
+                            "type": "bearer",
+                            "bearer": [
+                                {
+                                    "key": "token",
+                                    "value": "{{token}}",
+                                    "type": "string"
+                                }
+                            ]
+                        },
                         "method": "POST",
                         "header": [
                             {
@@ -168,42 +259,92 @@
                     "response": []
                 },
                 {
-                    "name": "Create Lecture (Upload Video)",
+                    "name": "Register S3 Video (Lecture)",
                     "request": {
-                        "method": "POST",
-                        "header": [],
-                        "body": {
-                            "mode": "formdata",
-                            "formdata": [
+                        "auth": {
+                            "type": "bearer",
+                            "bearer": [
                                 {
-                                    "key": "title",
-                                    "value": "Introduction Video",
-                                    "type": "text"
-                                },
-                                {
-                                    "key": "video",
-                                    "type": "file",
-                                    "src": []
+                                    "key": "token",
+                                    "value": "{{token}}",
+                                    "type": "string"
                                 }
                             ]
                         },
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n    \"title\": \"Intro Lecture\",\n    \"s3Key\": \"instructors/.../my-video.mp4\",\n    \"s3Bucket\": \"vastu-bucket\"\n}"
+                        },
                         "url": {
-                            "raw": "{{baseUrl}}/api/instructor/sections/:sectionId/lectures",
+                            "raw": "{{baseUrl}}/api/instructor/courses/:courseId/sections/:sectionId/lectures/register-s3-video",
                             "host": [
                                 "{{baseUrl}}"
                             ],
                             "path": [
                                 "api",
                                 "instructor",
+                                "courses",
+                                ":courseId",
                                 "sections",
                                 ":sectionId",
-                                "lectures"
+                                "lectures",
+                                "register-s3-video"
                             ],
                             "variable": [
+                                {
+                                    "key": "courseId",
+                                    "value": "REPLACE_WITH_COURSE_ID"
+                                },
                                 {
                                     "key": "sectionId",
                                     "value": "REPLACE_WITH_SECTION_ID"
                                 }
+                            ]
+                        }
+                    },
+                    "response": []
+                },
+                {
+                    "name": "Upload PDF Resource",
+                    "request": {
+                        "auth": {
+                            "type": "bearer",
+                            "bearer": [
+                                {
+                                    "key": "token",
+                                    "value": "{{token}}",
+                                    "type": "string"
+                                }
+                            ]
+                        },
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n    \"courseId\": \"REPLACE_WITH_COURSE_ID\",\n    \"title\": \"Week 1 Resources\",\n    \"type\": \"FREE\",\n    \"fileName\": \"resources.pdf\",\n    \"contentType\": \"application/pdf\"\n}"
+                        },
+                        "url": {
+                            "raw": "{{baseUrl}}/api/instructor/upload/pdf-resource",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "api",
+                                "instructor",
+                                "upload",
+                                "pdf-resource"
                             ]
                         }
                     },
@@ -273,7 +414,7 @@
                     "response": []
                 },
                 {
-                    "name": "Get Course",
+                    "name": "Get Course (Detail & Sections)",
                     "request": {
                         "auth": {
                             "type": "bearer",
@@ -309,7 +450,7 @@
                     "response": []
                 },
                 {
-                    "name": "Get Curriculum",
+                    "name": "Get Curriculum (Sections & Lectures)",
                     "request": {
                         "auth": {
                             "type": "bearer",
@@ -344,45 +485,6 @@
                         }
                     },
                     "response": []
-                },
-                {
-                    "name": "Update Progress",
-                    "request": {
-                        "auth": {
-                            "type": "bearer",
-                            "bearer": [
-                                {
-                                    "key": "token",
-                                    "value": "{{token}}",
-                                    "type": "string"
-                                }
-                            ]
-                        },
-                        "method": "POST",
-                        "header": [
-                            {
-                                "key": "Content-Type",
-                                "value": "application/json"
-                            }
-                        ],
-                        "body": {
-                            "mode": "raw",
-                            "raw": "{\n    \"lectureId\": \"LECTURE_ID\",\n    \"completed\": true\n}"
-                        },
-                        "url": {
-                            "raw": "{{baseUrl}}/api/student/progress/update",
-                            "host": [
-                                "{{baseUrl}}"
-                            ],
-                            "path": [
-                                "api",
-                                "student",
-                                "progress",
-                                "update"
-                            ]
-                        }
-                    },
-                    "response": []
                 }
             ]
         },
@@ -390,7 +492,7 @@
             "name": "Payments",
             "item": [
                 {
-                    "name": "Create Intent",
+                    "name": "Create Razorpay Order",
                     "request": {
                         "auth": {
                             "type": "bearer",
@@ -414,37 +516,54 @@
                             "raw": "{\n    \"courseId\": \"COURSE_ID\"\n}"
                         },
                         "url": {
-                            "raw": "{{baseUrl}}/api/payments/create-intent",
+                            "raw": "{{baseUrl}}/api/payments/razorpay/order",
                             "host": [
                                 "{{baseUrl}}"
                             ],
                             "path": [
                                 "api",
                                 "payments",
-                                "create-intent"
+                                "razorpay",
+                                "order"
                             ]
                         }
                     },
                     "response": []
                 },
                 {
-                    "name": "Webhook",
+                    "name": "Verify Razorpay Payment",
                     "request": {
+                        "auth": {
+                            "type": "bearer",
+                            "bearer": [
+                                {
+                                    "key": "token",
+                                    "value": "{{token}}",
+                                    "type": "string"
+                                }
+                            ]
+                        },
                         "method": "POST",
-                        "header": [],
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
                         "body": {
                             "mode": "raw",
-                            "raw": "{\n    \"type\": \"payment_intent.succeeded\"\n}"
+                            "raw": "{\n    \"razorpay_order_id\": \"order_...\",\n    \"razorpay_payment_id\": \"pay_...\",\n    \"razorpay_signature\": \"bypass\",\n    \"courseId\": \"COURSE_ID\"\n}"
                         },
                         "url": {
-                            "raw": "{{baseUrl}}/api/payments/webhook",
+                            "raw": "{{baseUrl}}/api/payments/razorpay/verify",
                             "host": [
                                 "{{baseUrl}}"
                             ],
                             "path": [
                                 "api",
                                 "payments",
-                                "webhook"
+                                "razorpay",
+                                "verify"
                             ]
                         }
                     },

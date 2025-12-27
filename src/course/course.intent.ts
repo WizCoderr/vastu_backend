@@ -71,52 +71,27 @@ export class CourseIntent {
         logger.info('CourseIntent.getLectureStreamUrl: requesting stream', { lectureId, userId: req.user.userId });
 
         try {
-            // Check enrollment first (using Reducer or Prisma directly)
-            // Ideally we use a reducer for enrollment check. Let's assume we can query prisma here for speed/simplicity
-            // or we reuse existing pattern. Since CourseReducer seems to handle logic, let's peek at it,
-            // but for now I'll do a direct check or use a helper if available.
-            // Given the context, I'll use prisma directly for this specific new flow to ensure exact logic.
-
-            const lecture = await prisma.lecture.findUnique({
-                where: { id: lectureId },
-                include: { section: { include: { course: { include: { enrollments: { where: { userId: req.user.userId } } } } } } }
-            });
-
-            if (!lecture) {
-                return res.status(404).json(Result.fail('Lecture not found'));
+            const accessResult = await CourseReducer.validateLectureAccess(lectureId, req.user.userId, req.user.role);
+            if (!accessResult.success) {
+                // Determine strict status code based on error message or default to 403
+                const status = accessResult.error === 'Lecture not found' ? 404 : 403;
+                return res.status(status).json(accessResult);
             }
+            const lecture = accessResult.data;
 
-            // Check enrollment
-            const enrollments = lecture.section.course.enrollments;
-            const isInstructor = lecture.section.course.instructorId === req.user.userId;
-            const isAdmin = req.user.role === 'admin';
-
-            if (enrollments.length === 0 && !isInstructor && !isAdmin) {
-                return res.status(403).json(Result.fail('You are not enrolled in this course'));
-            }
-
-            // Handle Mux vs Cloudinary
-            if (lecture.videoProvider === 'mux' || lecture.videoProvider === 's3-mux') {
-                if (!lecture.muxPlaybackId) {
-                    return res.status(422).json(Result.fail('Video is processing or not ready'));
-                }
-
-                // Dynamically import to avoid top-level side effects if env vars missing during other flows
-                const { signMuxPlaybackId } = await import('../core/muxService');
-                const signedUrl = await signMuxPlaybackId(lecture.muxPlaybackId);
+            // Handle S3 Playback
+            if (lecture.s3Key) {
+                const { getPresignedReadUrl } = await import('../core/s3Service');
+                const signedUrl = await getPresignedReadUrl(lecture.s3Key, lecture.s3Bucket || undefined);
 
                 return res.json({
                     success: true,
                     url: signedUrl,
-                    provider: 'mux'
+                    provider: 's3'
                 });
             } else {
-                // Cloudinary (Default)
-                return res.json({
-                    success: true,
-                    url: lecture.videoUrl,
-                    provider: 'cloudinary'
-                });
+                // Legacy Fallback (should not be reached for new content)
+                return res.status(422).json(Result.fail('Video provider not supported or missing S3 key'));
             }
 
         } catch (error: any) {

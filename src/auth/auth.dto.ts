@@ -15,12 +15,15 @@ export const loginSchema = z.object({
 export type RegisterDto = z.infer<typeof registerSchema>;
 export type LoginDto = z.infer<typeof loginSchema>;
 
+export interface UserDto {
+    id: string;
+    email: string;
+    name: string | null;
+    role: string;
+    enrolledCourseIds: string[];
+}
+
 export interface AuthResponse {
     token: string;
-    user: {
-        id: string;
-        email: string;
-        name: string | null;
-        role: string;
-    };
+    user: UserDto;
 }

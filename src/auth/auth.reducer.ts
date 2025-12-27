@@ -1,7 +1,7 @@
 import bcrypt from 'bcryptjs';
 import { prisma } from "../core/prisma";
 import { signToken } from '../core/jwt';
-import { RegisterDto, LoginDto, AuthResponse } from './auth.dto';
+import { RegisterDto, LoginDto, AuthResponse, UserDto } from './auth.dto';
 import { Result } from '../core/result';
 
 export class AuthReducer {
@@ -32,6 +32,7 @@ export class AuthReducer {
                 email: user.email,
                 name: user.name,
                 role: user.role,
+                enrolledCourseIds: user.enrolledCourseIds
             },
         });
     }
@@ -58,7 +59,22 @@ export class AuthReducer {
                 email: user.email,
                 name: user.name,
                 role: user.role,
+                enrolledCourseIds: user.enrolledCourseIds
             },
         });
     }
+
+    static async getUser(userId: string): Promise<Result<UserDto>> {
+        const user = await prisma.user.findUnique({ where: { id: userId } });
+        if (!user) return Result.fail('User not found');
+
+        return Result.ok({
+            id: user.id,
+            email: user.email,
+            name: user.name,
+            role: user.role,
+            enrolledCourseIds: user.enrolledCourseIds
+        });
+    }
 }
+

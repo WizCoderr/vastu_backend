@@ -2,13 +2,22 @@ import Razorpay from 'razorpay';
 import crypto from 'crypto';
 import logger from '../utils/logger';
 
-const razorpay = new Razorpay({
-    key_id: process.env.RAZORPAY_KEY_ID || '',
-    key_secret: process.env.RAZORPAY_KEY_SECRET || ''
-});
+// Lazy init
+let razorpayInstance: Razorpay | null = null;
+
+const getRazorpay = () => {
+    if (!razorpayInstance) {
+        razorpayInstance = new Razorpay({
+            key_id: process.env.RAZORPAY_KEY_ID || 'test_key', // Fallback to prevent crash on init
+            key_secret: process.env.RAZORPAY_KEY_SECRET || 'test_secret'
+        });
+    }
+    return razorpayInstance;
+};
 
 export const createRazorpayOrder = async (amount: number, currency: string = 'INR', receipt: string) => {
     try {
+        const razorpay = getRazorpay();
         const order = await razorpay.orders.create({
             amount: Math.round(amount * 100), // Razorpay expects amount in paise
             currency,

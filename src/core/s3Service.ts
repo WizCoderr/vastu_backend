@@ -1,4 +1,4 @@
-import { S3Client, PutObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3';
+import { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import logger from '../utils/logger';
 
@@ -43,6 +43,21 @@ export const getPresignedReadUrl = async (key: string, bucket?: string) => {
         return url;
     } catch (error) {
         logger.error('Failed to generate S3 pre-signed read URL', { error });
+        throw error;
+    }
+};
+export const deleteObject = async (key: string, bucket?: string) => {
+    try {
+        const bucketName = bucket || process.env.AWS_BUCKET_NAME;
+        if (!bucketName) throw new Error('AWS_BUCKET_NAME is not configured');
+        const command = new DeleteObjectCommand({
+            Bucket: bucketName,
+            Key: key,
+        });
+        await s3Client.send(command);
+        logger.info('Deleted S3 object', { key, bucket: bucketName });
+    } catch (error) {
+        logger.error('Failed to delete S3 object', { error, key });
         throw error;
     }
 };

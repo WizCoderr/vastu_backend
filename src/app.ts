@@ -16,8 +16,7 @@ app.use(helmet());
 app.use(cors());
 app.use(morgan('dev'));
 
-// Webhook route - needs raw body for Stripe
-// We must mount this BEFORE the json parser for /api/payments/webhook
+// Webhook route - needs raw body for payment providers if needed
 app.use('/api/payments/webhook', express.raw({ type: 'application/json' }));
 
 // For everything else using JSON

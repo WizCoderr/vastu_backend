@@ -25,6 +25,8 @@ model User {
   enrollments Enrollment[]
   progress    Progress[]
   payments    Payment[]
+
+  enrolledCourseIds String[] @default([])
 }
 
 model Course {
@@ -41,9 +43,27 @@ model Course {
   s3Bucket  String?
   mediaType String? // "image"
 
-  sections    Section[]
-  enrollments Enrollment[]
-  payments    Payment[]
+  sections        Section[]
+  enrollments     Enrollment[]
+  payments        Payment[]
+  courseResources CourseResource[]
+}
+
+enum ResourceType {
+  FREE
+  PAID
+}
+
+model CourseResource {
+  id        String       @id @default(auto()) @map("_id") @db.ObjectId
+  courseId  String       @db.ObjectId
+  title     String
+  s3Key     String
+  s3Bucket  String
+  type      ResourceType
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+  course    Course       @relation(fields: [courseId], references: [id])
 }
 
 model Section {

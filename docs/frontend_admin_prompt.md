@@ -34,11 +34,15 @@ The following APIs are protected and require the Admin role.
 | **Create Course** | `/api/instructor/courses` | POST | `{ "title": "...", "price": "...", "instructorId": "..." }` |
 | **Add Section** | `/api/instructor/courses/:id/sections` | POST | `{ "title": "..." }` |
 | **Add Lecture** | `/api/instructor/sections/:id/lectures` | POST | `FormData`: `video` (File), `title` (Text) |
+| **Upload Resource** | `/api/instructor/upload/pdf-resource` | POST | `{ "courseId": "...", "title": "...", "type": "FREE/PAID", "fileName": "...", "contentType": "..." }` |
 
 **UI Requirements:**
 1.  **Create Course Form:** Inputs for Title, Description, Price.
 2.  **Course Management:** View to add Sections to a Course.
 3.  **Upload Lecture:** Form within a Section to upload a video file. *Note: Use `FormData` for the video upload.*
+4.  **Resource Upload:** Form to upload PDF resources.
+    *   Select "Free" or "Paid".
+    *   Upload file directly to S3 using the URL returned from the API.
 
 ## 3. Error Handling
 -   Handle `401 Unauthorized`: Redirect to Login.

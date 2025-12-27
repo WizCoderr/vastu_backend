@@ -24,11 +24,15 @@ router.post('/courses/:courseId/sections', requireAdmin, InstructorIntent.create
 // Get S3 Pre-signed URL for Upload
 
 router.post('/upload/presigned-url', requireAdmin, InstructorIntent.getPresignedUrl as RequestHandler);
+router.post('/upload/pdf-resource', requireAdmin, InstructorIntent.uploadPdfResource as RequestHandler);
 
-// Register S3 Video (Backend triggers Mux)
+// Register S3 Video
 router.post('/courses/:courseId/sections/:sectionId/lectures/register-s3-video', requireAdmin, InstructorIntent.registerS3Lecture as RequestHandler);
 
 // Admin logout (invalidate token)
 router.post('/logout', requireAdmin, AuthIntent.logout as RequestHandler);
+
+router.delete('/courses/:courseId/sections/:sectionId', requireAdmin, InstructorIntent.deleteSection as RequestHandler);
+router.delete('/courses/:courseId', requireAdmin, InstructorIntent.deleteCourse as RequestHandler);
 
 export default router;

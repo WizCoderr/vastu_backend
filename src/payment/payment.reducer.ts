@@ -55,7 +55,7 @@ export class PaymentReducer {
                     courseId,
                     amount: "0", // Ideally fetch from course or order history
                     status: 'COMPLETED',
-                    providerId: null, // Legacy Stripe field
+                    providerId: null,
                     razorpayOrderId: razorpayOrderId,
                     razorpayPaymentId: razorpayPaymentId,
                     razorpaySignature: razorpaySignature

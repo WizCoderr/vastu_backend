@@ -1,0 +1,12 @@
+- [x] Research existing course resource handling
+- [x] Design Prisma model for CourseResource with fields: id, courseId, title, s3Key, s3Bucket, type (enum: FREE, PAID)
+- [x] Update Prisma schema (schema.prisma) to include CourseResource model and enum
+- [x] Generate migration
+- [x] Implement API route in src/course/instructor.intent.ts: uploadPdfResource
+  - [x] Validate request (title, type, file)
+  - [x] Use existing S3 presigned upload flow to get key
+  - [x] Save resource record in DB
+- [x] Add access control in getCourseDetails to include resources based on user enrollment and resource type
+- [x] Write unit/integration tests for upload and access control
+- [x] Update documentation
+- [x] Verify via manual testing and automated tests

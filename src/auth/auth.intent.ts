@@ -62,4 +62,16 @@ export class AuthIntent {
         }
         return res.status(200).json(Result.ok({ message: 'Logged out' }));
     }
+
+    static async getUser(req: AuthRequest, res: Response) {
+        if (!req.user) return res.status(401).json(Result.fail('Unauthorized'));
+
+        const result = await AuthReducer.getUser(req.user.userId);
+
+        if (result.success) {
+            return res.json(result);
+        } else {
+            return res.status(404).json(result);
+        }
+    }
 }
