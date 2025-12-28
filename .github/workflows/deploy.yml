@@ -1,24 +1,26 @@
-name: Deploy Backend to VPS
+name: Deploy Backend
 
 on:
   push:
-    branches: [ "master" ]   # deploy only when master is pushed
+    branches:
+      - master
+
 jobs:
   deploy:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout Code
+      - name: Checkout Repository
         uses: actions/checkout@v3
 
-      - name: SSH into VPS and deploy backend
-        uses: appleboy/ssh-action@v1.0.3
+      - name: Deploy to VPS via SSH
+        uses: appleboy/ssh-action@v0.1.10
         with:
           host: ${{ secrets.SERVER_IP }}
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
-          debug: true
           script: |
-            cd ~/vastu_backend
-            chmod +x ./deploy.sh
-            ./deploy.sh
+            cd ~/projects/vastu_backend
+            git pull origin main
+            docker-compose down
+            docker-compose up -d --build
