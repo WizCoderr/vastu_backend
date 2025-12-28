@@ -10,17 +10,6 @@ services:
     networks:
       - vastu_network
 
-  watchtower:
-    image: containrrr/watchtower
-    container_name: vastu_watchtower
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
-    environment:
-      - WATCHTOWER_CLEANUP=true
-      - WATCHTOWER_POLL_INTERVAL=300
-    networks:
-      - vastu_network
-
 networks:
   vastu_network:
     driver: bridge
