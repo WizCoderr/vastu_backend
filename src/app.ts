@@ -15,8 +15,10 @@ const app = express();
 // Middleware
 app.use(helmet());
 app.use(cors({
-    origin: config.cors.origin === '*' ? '*' : config.cors.origin.split(','),
-    credentials: true
+    origin: '*',
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
+    credentials: false
 }));
 app.use(morgan('dev'));
 
