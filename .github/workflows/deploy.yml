@@ -20,7 +20,7 @@ jobs:
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           script: |
-            cd ~/projects/vastu_backend
-            git pull origin main
-            docker-compose down
-            docker-compose up -d --build
+            cd ~/vastu_backend
+            git pull origin master
+            docker compose down
+            docker compose up -d --build
