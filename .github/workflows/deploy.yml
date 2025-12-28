@@ -2,18 +2,13 @@ name: Deploy Backend
 
 on:
   push:
-    branches:
-      - master
+    branches: ["master"]  # Use correct branch (change if using master)
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout Repository
-        uses: actions/checkout@v3
-
-      - name: Deploy to VPS via SSH
+      - name: Deploy to VPS
         uses: appleboy/ssh-action@v0.1.10
         with:
           host: ${{ secrets.SERVER_IP }}
@@ -21,6 +16,7 @@ jobs:
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           script: |
             cd ~/vastu_backend
+            git reset --hard
             git pull origin master
             docker compose down
             docker compose up -d --build
