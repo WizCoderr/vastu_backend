@@ -10,11 +10,11 @@ services:
     labels:
       - "traefik.enable=true"
       # HTTP Router (for redirection)
-      - "traefik.http.routers.backend-http.rule=Host(`api.vastuarunsharma`)"
+      - "traefik.http.routers.backend-http.rule=Host(`api.vastuarunsharma.com`)"
       - "traefik.http.routers.backend-http.entrypoints=web"
       - "traefik.http.routers.backend-http.middlewares=https-redirect"
       # HTTPS Router
-      - "traefik.http.routers.backend.rule=Host(`api.vastuarunsharma`)"
+      - "traefik.http.routers.backend.rule=Host(`api.vastuarunsharma.com`)"
       - "traefik.http.routers.backend.entrypoints=websecure"
       - "traefik.http.routers.backend.tls=true"
       - "traefik.http.services.backend.loadbalancer.server.port=3030"
