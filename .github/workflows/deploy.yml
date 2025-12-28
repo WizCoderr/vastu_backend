@@ -3,7 +3,6 @@ name: Deploy Backend to VPS
 on:
   push:
     branches: [ "master" ]   # deploy only when master is pushed
-
 jobs:
   deploy:
     runs-on: ubuntu-latest
