@@ -1,11 +1,11 @@
 services:
   backend:
-    build: ./backend                # build Node app from backend folder
+    build: ./backend
     container_name: vastu_backend
     restart: always
     env_file:
-      - ./backend/.env              # environment file stored inside backend folder
-    expose:                         # expose internal for nginx proxy only
+      - ./backend/.env
+    expose:
       - "3000"
     networks:
       - vastu_network
