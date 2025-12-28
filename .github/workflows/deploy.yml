@@ -1,0 +1,22 @@
+name: Deploy Backend to VPS
+
+on:
+  push:
+    branches: [ "master" ]   # deploy only when master is pushed
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v3
+
+      - name: SSH into VPS and deploy backend
+        uses: appleboy/ssh-action@v0.1.10
+        with:
+          host: ${{ secrets.SERVER_IP }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          command: chmod +x ./deploy.sh 
+          script: ./deploy.sh 
