@@ -1,9 +1,26 @@
-tls:
-  certificates:
-    - certFile: /etc/traefik/certs/server.crt
-      keyFile: /etc/traefik/certs/server.key
-  stores:
-    default:
-      defaultCertificate:
-        certFile: /etc/traefik/certs/server.crt
-        keyFile: /etc/traefik/certs/server.key
+entryPoints:
+  web:
+    address: ":80"
+
+  websecure:
+    address: ":443"
+
+certificatesResolvers:
+  letsencrypt:
+    acme:
+      email: vastuarunsharma105@gmail.com       # YOUR EMAIL
+      storage: /letsencrypt/acme.json     
+      httpChallenge:                      # Use HTTP challenge for verification
+        entryPoint: web
+
+http:
+  middlewares:
+    https_redirect:
+      redirectScheme:
+        scheme: https
+
+api:
+  dashboard: true
+
+log:
+  level: INFO
