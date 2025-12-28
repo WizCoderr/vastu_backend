@@ -24,8 +24,5 @@ COPY tsconfig.json ./
 # Copy environment file (if needed)
 COPY .env* ./
 
-# Expose the port
-EXPOSE 3000
-
 # Start the application
 CMD ["bun", "run", "dev"]
