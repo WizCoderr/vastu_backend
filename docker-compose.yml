@@ -5,45 +5,8 @@ services:
     restart: always
     env_file:
       - .env
-    labels:
-      - "traefik.enable=true"
-
-      # HTTPS Router → auto cert
-      - "traefik.http.routers.vastu.rule=Host(`api.vastuarunsharma.com`)"
-      - "traefik.http.routers.vastu.entrypoints=websecure"
-      - "traefik.http.routers.vastu.tls.certresolver=letsencrypt"
-      - "traefik.http.services.vastu.loadbalancer.server.port=3000"
-
-      # HTTP → HTTPS redirect
-      - "traefik.http.routers.vastu_http.rule=Host(`api.vastuarunsharma.com`)"
-      - "traefik.http.routers.vastu_http.entrypoints=web"
-      - "traefik.http.routers.vastu_http.middlewares=https_redirect"
-    networks:
-      - vastu_network
-
-  traefik:
-    image: traefik:v3.0
-    container_name: traefik
-    restart: always
     ports:
-      - "80:80"
-      - "443:443"
-    command:
-      - "--providers.docker=true"
-      - "--providers.docker.exposedbydefault=false"
-      - "--entrypoints.web.address=:80"
-      - "--entrypoints.websecure.address=:443"
-      - "--api.dashboard=true"
-
-      # Enable Let's Encrypt HTTPS
-      - "--certificatesresolvers.letsencrypt.acme.email=vastuarunsharma105@gmail.com"
-      - "--certificatesresolvers.letsencrypt.acme.storage=/letsencrypt/acme.json"
-      - "--certificatesresolvers.letsencrypt.acme.httpchallenge.entrypoint=web"
-
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock:ro
-      - ./traefik/traefik_dynamic.yml:/etc/traefik/traefik_dynamic.yml:ro
-      - ./letsencrypt:/letsencrypt
+      - "127.0.0.1:3030:3030"
     networks:
       - vastu_network
 
