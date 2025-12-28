@@ -3,8 +3,17 @@ import { InstructorIntent } from '../course/instructor.intent';
 
 import { requireAdmin } from '../core/authMiddleware';
 import { AuthIntent } from '../auth/auth.intent';
+import multer from 'multer';
+import path from 'path';
 
 const router = Router();
+
+// Configure Multer for processing
+const tempDir = 'temp_uploads/';
+if (!require('fs').existsSync(tempDir)) {
+    require('fs').mkdirSync(tempDir);
+}
+const upload = multer({ dest: tempDir });
 
 // Create a new course
 router.post('/courses', requireAdmin, InstructorIntent.createCourse as RequestHandler);
@@ -21,10 +30,9 @@ router.post('/courses/:courseId/sections', requireAdmin, InstructorIntent.create
 
 // --- S3 Migration Endpoints ---
 
-// Get S3 Pre-signed URL for Upload
+// Consolidated Upload (handles Image, Video, PDF)
+router.post('/upload', requireAdmin, upload.single('file') as any, InstructorIntent.unifiedUpload as RequestHandler);
 
-router.post('/upload/presigned-url', requireAdmin, InstructorIntent.getPresignedUrl as RequestHandler);
-router.post('/upload/pdf-resource', requireAdmin, InstructorIntent.uploadPdfResource as RequestHandler);
 router.get('/courses/:courseId/resources', requireAdmin, InstructorIntent.getCourseResources as RequestHandler);
 router.delete('/resources/:resourceId', requireAdmin, InstructorIntent.deleteResource as RequestHandler);
 

@@ -9,11 +9,10 @@ const startServer = () => {
     });
 };
 
-if (cluster.isPrimary) {
-    // Default to 1 worker if not specified, to avoid OOM on small instances
-    // Use WEB_CONCURRENCY or WORKERS env var to override
-    const numCPUs = parseInt(process.env.WEB_CONCURRENCY || process.env.WORKERS || '1', 10);
+const numCPUs = parseInt(process.env.WEB_CONCURRENCY || process.env.WORKERS || '1', 10);
+const forceCluster = process.env.FORCE_CLUSTER === 'true';
 
+if ((numCPUs > 1 || forceCluster) && cluster.isPrimary) {
     logger.info(`Master ${process.pid} is running`);
     logger.info(`Forking ${numCPUs} workers...`);
 
@@ -26,5 +25,8 @@ if (cluster.isPrimary) {
         cluster.fork();
     });
 } else {
+    if (numCPUs === 1 && !forceCluster) {
+        logger.info('Running in single process mode (optimized for 1 vCPU)');
+    }
     startServer();
 }

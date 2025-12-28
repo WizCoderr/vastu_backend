@@ -66,4 +66,43 @@ export class AdminIntent {
             res.status(500).json({ error: 'Failed to list students' });
         }
     }
+
+    static async getVideoLibrary(req: Request, res: Response) {
+        logger.info('AdminIntent.getVideoLibrary: Fetching video stats');
+        const { AdminReducer } = await import('./admin.reducer');
+        const result = await AdminReducer.getVideoLibraryStats();
+
+        if (result.success) {
+            res.status(200).json(result.data);
+        } else {
+            res.status(500).json({ error: result.error });
+        }
+    }
+
+    static async getStorageFiles(req: Request, res: Response) {
+        logger.info('AdminIntent.getStorageFiles: Listing storage files');
+        const limit = Number(req.query.limit) || 20;
+        const cursor = req.query.cursor as string | undefined;
+
+        const { AdminReducer } = await import('./admin.reducer');
+        const result = await AdminReducer.getStorageFiles(limit, cursor);
+
+        if (result.success) {
+            res.status(200).json(result.data);
+        } else {
+            res.status(500).json({ error: result.error });
+        }
+    }
+
+    static async getPaymentStats(req: Request, res: Response) {
+        logger.info('AdminIntent.getPaymentStats: Fetching payment stats');
+        const { AdminReducer } = await import('./admin.reducer');
+        const result = await AdminReducer.getPaymentStats();
+
+        if (result.success) {
+            res.status(200).json(result.data);
+        } else {
+            res.status(500).json({ error: result.error });
+        }
+    }
 }

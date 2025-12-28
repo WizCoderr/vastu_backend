@@ -2,6 +2,18 @@ import { Request, Response } from 'express';
 import { prisma } from '../core/prisma';
 import { z } from 'zod';
 import logger from '../utils/logger';
+import { MediaService } from '../core/mediaService';
+import fs from 'fs';
+import path from 'path';
+import { PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
+
+const s3Client = new S3Client({
+    region: process.env.AWS_REGION || 'us-east-1',
+    credentials: {
+        accessKeyId: process.env.AWS_ACCESS_KEY_ID || '',
+        secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY || ''
+    }
+});
 
 export class InstructorIntent {
     // Create a new course
@@ -82,56 +94,77 @@ export class InstructorIntent {
         }
     }
 
-    // Generate a presigned URL for image/video upload
-    static async getPresignedUrl(req: Request, res: Response) {
-        const schema = z.object({
-            fileName: z.string(),
-            contentType: z.string(),
-            fileType: z.enum(['image', 'video']),
-        });
+    // Unified Upload (replacing getPresignedUrl and uploadPdfResource)
+    static async unifiedUpload(req: any, res: Response) {
+        if (!req.file) {
+            return res.status(400).json({ error: 'No file uploaded' });
+        }
+
+        const inputPath = req.file.path;
+        const fileType = req.body.fileType as 'image' | 'video' | 'pdf';
+        let processedPath = inputPath;
+
         try {
-            const data = schema.parse(req.body);
-            const folder = data.fileType === 'video' ? 'videos' : 'images';
-            const key = `vastu-courses/${folder}/${Date.now()}-${data.fileName}`;
-            const { getPresignedUploadUrl } = await import('../core/s3Service');
-            const uploadData = await getPresignedUploadUrl(key, data.contentType);
-            res.json({ success: true, ...uploadData });
-        } catch (error) {
-            console.error('S3 Presign Error:', error);
-            res.status(500).json({ error: 'Failed to generate upload URL' });
+            logger.info(`Unified upload processing: ${req.file.originalname} (${fileType})`);
+
+            // 1. Process media if needed
+            if (fileType === 'image') {
+                processedPath = await MediaService.compressToWebP(inputPath);
+            } else if (fileType === 'video') {
+                processedPath = await MediaService.transcodeToH265(inputPath);
+            }
+
+            // 2. Determine S3 destination
+            const fileName = path.basename(processedPath);
+            const folder = fileType === 'video' ? 'videos' : (fileType === 'image' ? 'images' : 'pdfs');
+            const s3Key = `vastu-courses/${folder}/${Date.now()}-${fileName}`;
+            const bucketName = process.env.AWS_BUCKET_NAME!;
+
+            // 3. Upload to S3
+            const fileBuffer = fs.readFileSync(processedPath);
+            await s3Client.send(new PutObjectCommand({
+                Bucket: bucketName,
+                Key: s3Key,
+                Body: fileBuffer,
+                ContentType: fileType === 'video' ? 'video/mp4' : (fileType === 'image' ? 'image/webp' : 'application/pdf')
+            }));
+
+            logger.info(`Uploaded to S3: ${s3Key}`);
+
+            // 4. Handle PDF Resource metadata (legacy support from uploadPdfResource)
+            if (fileType === 'pdf' && req.body.courseId) {
+                const resource = await prisma.courseResource.create({
+                    data: {
+                        courseId: req.body.courseId,
+                        title: req.body.title || req.file.originalname,
+                        s3Key,
+                        s3Bucket: bucketName,
+                        type: req.body.type || 'FREE',
+                    },
+                });
+                return res.status(201).json({ resource, url: `s3://${bucketName}/${s3Key}` });
+            }
+
+            // 5. Standard response for images/videos
+            res.json({
+                success: true,
+                s3Key,
+                s3Bucket: bucketName,
+                url: `s3://${bucketName}/${s3Key}`,
+                fileType
+            });
+
+        } catch (error: any) {
+            logger.error('Unified upload failed', { error });
+            res.status(500).json({ error: 'Upload failed', details: error.message });
+        } finally {
+            await MediaService.cleanup(inputPath);
+            if (processedPath !== inputPath) {
+                await MediaService.cleanup(processedPath);
+            }
         }
     }
 
-    // Upload PDF resource metadata and get presigned upload URL
-    static async uploadPdfResource(req: Request, res: Response) {
-        const schema = z.object({
-            courseId: z.string(),
-            title: z.string().min(1),
-            type: z.enum(['FREE', 'PAID']),
-            fileName: z.string(),
-            contentType: z.string(),
-        });
-        try {
-            const data = schema.parse(req.body);
-            const folder = 'pdfs';
-            const key = `vastu-courses/${folder}/${Date.now()}-${data.fileName}`;
-            const { getPresignedUploadUrl } = await import('../core/s3Service');
-            const uploadData = await getPresignedUploadUrl(key, data.contentType);
-            const resource = await prisma.courseResource.create({
-                data: {
-                    courseId: data.courseId,
-                    title: data.title,
-                    s3Key: key,
-                    s3Bucket: process.env.AWS_BUCKET_NAME!,
-                    type: data.type as any,
-                },
-            });
-            res.status(201).json({ resource, uploadUrl: uploadData.url, fields: (uploadData as any).fields ?? {} });
-        } catch (error: any) {
-            logger.error('Failed to upload PDF resource', { error });
-            res.status(400).json({ error: 'Invalid request', details: error instanceof z.ZodError ? error : error.message });
-        }
-    }
 
     // Register a video stored in S3
     static async registerS3Lecture(req: Request, res: Response) {
@@ -193,15 +226,22 @@ export class InstructorIntent {
         try {
             const course = await prisma.course.findUnique({
                 where: { id: courseId },
-                include: { sections: { include: { lectures: true } } },
+                include: {
+                    sections: { include: { lectures: true } },
+                    courseResources: true
+                },
             });
             if (!course) {
                 return res.status(404).json({ error: 'Course not found' });
             }
             const { deleteObject } = await import('../core/s3Service');
+
+            // 1. Delete Course Thumbnail
             if (course.s3Key) {
                 await deleteObject(course.s3Key, course.s3Bucket ?? undefined);
             }
+
+            // 2. Delete Section Lctures (Videos)
             for (const section of course.sections) {
                 for (const lecture of section.lectures) {
                     if (lecture.s3Key) {
@@ -211,8 +251,19 @@ export class InstructorIntent {
                 }
                 await prisma.section.delete({ where: { id: section.id } });
             }
+
+            // 3. Delete Course Resources (PDFs)
+            if (course.courseResources) {
+                for (const resource of course.courseResources) {
+                    if (resource.s3Key) {
+                        await deleteObject(resource.s3Key, resource.s3Bucket);
+                    }
+                    await prisma.courseResource.delete({ where: { id: resource.id } });
+                }
+            }
+
             await prisma.course.delete({ where: { id: courseId } });
-            res.json({ success: true, message: 'Course, sections, lectures, and S3 assets deleted' });
+            res.json({ success: true, message: 'Course, sections, lectures, resources, and S3 assets deleted' });
         } catch (error) {
             logger.error('Failed to delete course', { error });
             res.status(500).json({ error: 'Failed to delete course' });

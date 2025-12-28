@@ -1,4 +1,4 @@
-import { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand } from '@aws-sdk/client-s3';
+import { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand, ListObjectsV2Command } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import logger from '../utils/logger';
 
@@ -58,6 +58,72 @@ export const deleteObject = async (key: string, bucket?: string) => {
         logger.info('Deleted S3 object', { key, bucket: bucketName });
     } catch (error) {
         logger.error('Failed to delete S3 object', { error, key });
+        throw error;
+    }
+};
+
+export const getBucketStorageUsage = async (bucket?: string) => {
+    try {
+        const bucketName = bucket || process.env.AWS_BUCKET_NAME;
+        if (!bucketName) throw new Error('AWS_BUCKET_NAME is not configured');
+
+        let totalSize = 0;
+        let continuationToken: string | undefined = undefined;
+
+        do {
+            const command: ListObjectsV2Command = new ListObjectsV2Command({
+                Bucket: bucketName,
+                ContinuationToken: continuationToken
+            });
+
+            const response = await s3Client.send(command);
+
+            if (response.Contents) {
+                for (const object of response.Contents) {
+                    totalSize += object.Size || 0;
+                }
+            }
+
+            continuationToken = response.NextContinuationToken;
+        } while (continuationToken);
+
+        return totalSize;
+    } catch (error) {
+        logger.error('Failed to calculate S3 bucket storage usage', { error });
+        throw error;
+    }
+};
+
+export const listBucketFiles = async (limit: number = 20, cursor?: string, bucket?: string) => {
+    try {
+        const bucketName = bucket || process.env.AWS_BUCKET_NAME;
+        if (!bucketName) throw new Error('AWS_BUCKET_NAME is not configured');
+
+        const command = new ListObjectsV2Command({
+            Bucket: bucketName,
+            MaxKeys: limit,
+            ContinuationToken: cursor
+        });
+
+        const response = await s3Client.send(command);
+
+        const files = await Promise.all((response.Contents || []).map(async (obj) => {
+            // Generate signed URL for each file so admin can view/download
+            const url = obj.Key ? await getPresignedReadUrl(obj.Key, bucketName).catch(() => null) : null;
+            return {
+                key: obj.Key,
+                size: obj.Size,
+                lastModified: obj.LastModified,
+                url
+            };
+        }));
+
+        return {
+            files,
+            nextCursor: response.NextContinuationToken
+        };
+    } catch (error) {
+        logger.error('Failed to list S3 bucket files', { error });
         throw error;
     }
 };
