@@ -8,12 +8,16 @@ import paymentRoutes from './routes/payment.routes';
 import instructorRoutes from './routes/instructor.routes';
 import adminRoutes from './routes/admin.routes';
 import publicRoutes from './routes/public.routes';
+import { config } from './config';
 
 const app = express();
 
 // Middleware
 app.use(helmet());
-app.use(cors());
+app.use(cors({
+    origin: config.cors.origin === '*' ? '*' : config.cors.origin.split(','),
+    credentials: true
+}));
 app.use(morgan('dev'));
 
 // Webhook route - needs raw body for payment providers if needed
