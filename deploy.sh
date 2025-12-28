@@ -1,6 +1,9 @@
 #!/bin/bash
 cd ~/vastu_backend
 
+# Stash local changes
+git stash
+
 # Pull latest code
 git pull origin master
 
