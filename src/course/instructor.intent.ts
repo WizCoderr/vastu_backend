@@ -46,7 +46,7 @@ export class InstructorIntent {
             });
 
             logger.info('InstructorIntent.createCourse: Course created successfully', { courseId: course.id });
-            res.status(201).json(course);
+            res.status(201).json({ success: true, data: course });
         } catch (error: any) {
             logger.error('InstructorIntent.createCourse: Failed to create course', { error });
             res.status(400).json({ error: 'Failed to create course', details: error instanceof z.ZodError ? error : error.message });
@@ -59,6 +59,7 @@ export class InstructorIntent {
         try {
             const courses = await prisma.course.findMany({ orderBy: { id: 'desc' } });
             const { getPresignedReadUrl } = await import('../core/s3Service');
+
             const coursesWithUrls = await Promise.all(
                 courses.map(async (course) => {
                     let thumbUrl = course.thumbnail;
@@ -72,10 +73,11 @@ export class InstructorIntent {
                     return { ...course, thumbnail: thumbUrl };
                 })
             );
-            res.json(coursesWithUrls);
+
+            res.json({ success: true, data: coursesWithUrls });
         } catch (error) {
             logger.error('InstructorIntent.getInstructorCourses: Failed to list courses', { error });
-            res.status(500).json({ error: 'Failed to list courses' });
+            res.status(500).json({ success: false, error: 'Failed to list courses' });
         }
     }
 
@@ -117,28 +119,28 @@ export class InstructorIntent {
             });
 
             const presignedUrl = await getSignedUrl(s3Client, command, { expiresIn: 3600 }); // URL valid for 1 hour
-
-            logger.info('InstructorIntent.getPresignedUrl: Presigned URL generated successfully', { s3Key });
-            res.json({
-                success: true,
-                url: presignedUrl, // Existing
-                presignedUrl: presignedUrl, // Alias for common libraries
-                s3Key: s3Key, // Existing
-                key: s3Key, // Alias for common libraries
+            const resultData = {
+                url: presignedUrl,
+                presignedUrl: presignedUrl,
+                s3Key,
+                key: s3Key,
                 s3Bucket: bucketName,
                 fileType
-            });
+            };
+
+            logger.info('InstructorIntent.getPresignedUrl: Presigned URL generated successfully', { s3Key });
+            res.json({ success: true, data: resultData });
 
         } catch (error: any) {
             logger.error('InstructorIntent.getPresignedUrl: Failed to generate presigned URL', { error });
-            res.status(400).json({ error: 'Failed to generate presigned URL', details: error.message });
+            res.status(400).json({ success: false, error: 'Failed to generate presigned URL', details: error.message });
         }
     }
 
     // Unified Upload (replacing getPresignedUrl and uploadPdfResource)
     static async unifiedUpload(req: any, res: Response) {
         if (!req.file) {
-            return res.status(400).json({ error: 'No file uploaded' });
+            return res.status(400).json({ success: false, error: 'No file uploaded' });
         }
 
         const inputPath = req.file.path;
@@ -175,21 +177,23 @@ export class InstructorIntent {
                         type: req.body.type || 'FREE',
                     },
                 });
-                return res.status(201).json({ resource, url: `s3://${bucketName}/${s3Key}` });
+                return res.status(201).json({ success: true, data: { resource, url: `s3://${bucketName}/${s3Key}` } });
             }
 
             // 4. Standard response for images/videos
             res.json({
                 success: true,
-                s3Key,
-                s3Bucket: bucketName,
-                url: `s3://${bucketName}/${s3Key}`,
-                fileType
+                data: {
+                    s3Key,
+                    s3Bucket: bucketName,
+                    url: `s3://${bucketName}/${s3Key}`,
+                    fileType
+                }
             });
 
         } catch (error: any) {
             logger.error('Unified upload failed', { error });
-            res.status(500).json({ error: 'Upload failed', details: error.message });
+            res.status(500).json({ success: false, error: 'Upload failed', details: error.message });
         } finally {
             await MediaService.cleanup(inputPath);
         }
