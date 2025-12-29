@@ -15,11 +15,12 @@ const app = express();
 // Middleware
 app.use(helmet());
 app.use(cors({
-    origin: ['*','https://admin.vastuarunsharma.com'],
+    origin:  '*',
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization'],
     credentials: true
 }));
+app.set("trust proxy", 1);
 app.use(morgan('dev'));
 
 // Webhook route - needs raw body for payment providers if needed
