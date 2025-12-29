@@ -102,36 +102,28 @@ export class InstructorIntent {
 
         const inputPath = req.file.path;
         const fileType = req.body.fileType as 'image' | 'video' | 'pdf';
-        let processedPath = inputPath;
 
         try {
             logger.info(`Unified upload processing: ${req.file.originalname} (${fileType})`);
 
-            // 1. Process media if needed
-            if (fileType === 'image') {
-                processedPath = await MediaService.compressToWebP(inputPath);
-            } else if (fileType === 'video') {
-                processedPath = await MediaService.transcodeToH265(inputPath);
-            }
-
-            // 2. Determine S3 destination
-            const fileName = path.basename(processedPath);
+            // 1. Determine S3 destination
+            const fileName = path.basename(inputPath);
             const folder = fileType === 'video' ? 'videos' : (fileType === 'image' ? 'images' : 'pdfs');
-            const s3Key = `vastu-courses/${folder}/${Date.now()}-${fileName}`;
+            const s3Key = `vastu-courses/${folder}/${Date.now()}-${req.file.originalname}`;
             const bucketName = process.env.AWS_BUCKET_NAME!;
 
-            // 3. Upload to S3
-            const fileBuffer = fs.readFileSync(processedPath);
+            // 2. Upload to S3
+            const fileBuffer = fs.readFileSync(inputPath);
             await s3Client.send(new PutObjectCommand({
                 Bucket: bucketName,
                 Key: s3Key,
                 Body: fileBuffer,
-                ContentType: fileType === 'video' ? 'video/mp4' : (fileType === 'image' ? 'image/webp' : 'application/pdf')
+                ContentType: req.file.mimetype || (fileType === 'video' ? 'video/mp4' : (fileType === 'image' ? 'image/jpeg' : 'application/pdf'))
             }));
 
             logger.info(`Uploaded to S3: ${s3Key}`);
 
-            // 4. Handle PDF Resource metadata (legacy support from uploadPdfResource)
+            // 3. Handle PDF Resource metadata (legacy support from uploadPdfResource)
             if (fileType === 'pdf' && req.body.courseId) {
                 const resource = await prisma.courseResource.create({
                     data: {
@@ -145,7 +137,7 @@ export class InstructorIntent {
                 return res.status(201).json({ resource, url: `s3://${bucketName}/${s3Key}` });
             }
 
-            // 5. Standard response for images/videos
+            // 4. Standard response for images/videos
             res.json({
                 success: true,
                 s3Key,
@@ -159,9 +151,6 @@ export class InstructorIntent {
             res.status(500).json({ error: 'Upload failed', details: error.message });
         } finally {
             await MediaService.cleanup(inputPath);
-            if (processedPath !== inputPath) {
-                await MediaService.cleanup(processedPath);
-            }
         }
     }
 
