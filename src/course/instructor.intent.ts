@@ -121,8 +121,10 @@ export class InstructorIntent {
             logger.info('InstructorIntent.getPresignedUrl: Presigned URL generated successfully', { s3Key });
             res.json({
                 success: true,
-                url: presignedUrl,
-                s3Key,
+                url: presignedUrl, // Existing
+                presignedUrl: presignedUrl, // Alias for common libraries
+                s3Key: s3Key, // Existing
+                key: s3Key, // Alias for common libraries
                 s3Bucket: bucketName,
                 fileType
             });
