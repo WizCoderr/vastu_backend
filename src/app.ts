@@ -14,8 +14,14 @@ const app = express();
 
 // Middleware
 app.use(helmet());
+const allowedOrigins = [
+  "https://admin.vastuarunsharma.com",
+  "https://vastuarunsharma.com",
+  "https://api.vastuarunsharma.com",
+];
+
 app.use(cors({
-    origin:  '*',
+    origin:  allowedOrigins,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization'],
     credentials: true
