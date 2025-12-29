@@ -33,6 +33,9 @@ router.post('/courses/:courseId/sections', requireAdmin, InstructorIntent.create
 // Consolidated Upload (handles Image, Video, PDF)
 router.post('/upload', requireAdmin, upload.single('file') as any, InstructorIntent.unifiedUpload as RequestHandler);
 
+// Legacy/Frontend compatibility: Presigned URL for client-side upload
+router.post('/upload/presigned-url', requireAdmin, InstructorIntent.getPresignedUrl as RequestHandler);
+
 router.get('/courses/:courseId/resources', requireAdmin, InstructorIntent.getCourseResources as RequestHandler);
 router.delete('/resources/:resourceId', requireAdmin, InstructorIntent.deleteResource as RequestHandler);
 

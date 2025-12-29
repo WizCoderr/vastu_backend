@@ -6,6 +6,7 @@ import { MediaService } from '../core/mediaService';
 import fs from 'fs';
 import path from 'path';
 import { PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
+import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 
 const s3Client = new S3Client({
     region: process.env.AWS_REGION || 'us-east-1',
@@ -91,6 +92,44 @@ export class InstructorIntent {
         } catch (error) {
             logger.error('InstructorIntent.createSection: Failed to create section', { courseId, error });
             res.status(400).json({ error: 'Failed to create section' });
+        }
+    }
+
+    // Generate a presigned URL for direct client-side S3 upload
+    static async getPresignedUrl(req: Request, res: Response) {
+        logger.info('InstructorIntent.getPresignedUrl: Generating presigned URL');
+        try {
+            const schema = z.object({
+                fileName: z.string().min(1),
+                fileType: z.enum(['image', 'video', 'pdf']),
+                contentType: z.string().min(1) // e.g., 'image/jpeg', 'video/mp4', 'application/pdf'
+            });
+            const { fileName, fileType, contentType } = schema.parse(req.body);
+
+            const folder = fileType === 'video' ? 'videos' : (fileType === 'image' ? 'images' : 'pdfs');
+            const s3Key = `vastu-courses/${folder}/${Date.now()}-${fileName}`;
+            const bucketName = process.env.AWS_BUCKET_NAME!;
+
+            const command = new PutObjectCommand({
+                Bucket: bucketName,
+                Key: s3Key,
+                ContentType: contentType,
+            });
+
+            const presignedUrl = await getSignedUrl(s3Client, command, { expiresIn: 3600 }); // URL valid for 1 hour
+
+            logger.info('InstructorIntent.getPresignedUrl: Presigned URL generated successfully', { s3Key });
+            res.json({
+                success: true,
+                url: presignedUrl,
+                s3Key,
+                s3Bucket: bucketName,
+                fileType
+            });
+
+        } catch (error: any) {
+            logger.error('InstructorIntent.getPresignedUrl: Failed to generate presigned URL', { error });
+            res.status(400).json({ error: 'Failed to generate presigned URL', details: error.message });
         }
     }
 
