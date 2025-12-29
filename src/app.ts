@@ -15,16 +15,17 @@ const app = express();
 // Middleware
 app.use(helmet());
 const allowedOrigins = [
-  "https://admin.vastuarunsharma.com",
-  "https://vastuarunsharma.com",
-  "https://api.vastuarunsharma.com",
+    "https://admin.vastuarunsharma.com",
+    "https://vastuarunsharma.com",
+    "https://api.vastuarunsharma.com",
 ];
 
 app.use(cors({
-    origin:  allowedOrigins,
+    origin: allowedOrigins,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization'],
-    credentials: true
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+    credentials: true,
+    exposedHeaders: ['Content-Range', 'X-Content-Range']
 }));
 app.set("trust proxy", 1);
 app.use(morgan('dev'));

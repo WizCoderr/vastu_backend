@@ -119,21 +119,27 @@ export class InstructorIntent {
             });
 
             const presignedUrl = await getSignedUrl(s3Client, command, { expiresIn: 3600 }); // URL valid for 1 hour
-            const resultData = {
+
+            // Standard flat structure requested by frontend
+            const result = {
                 url: presignedUrl,
-                presignedUrl: presignedUrl,
-                s3Key,
+                method: 'PUT',
+                headers: {
+                    'Content-Type': contentType
+                },
+                // Metadata for subsequent API calls
                 key: s3Key,
+                s3Key: s3Key,
                 s3Bucket: bucketName,
-                fileType
+                fileType: fileType
             };
 
             logger.info('InstructorIntent.getPresignedUrl: Presigned URL generated successfully', { s3Key });
-            res.json({ success: true, data: resultData });
+            res.status(200).json(result);
 
         } catch (error: any) {
             logger.error('InstructorIntent.getPresignedUrl: Failed to generate presigned URL', { error });
-            res.status(400).json({ success: false, error: 'Failed to generate presigned URL', details: error.message });
+            res.status(400).json({ error: 'Failed to generate presigned URL', details: error.message });
         }
     }
 
