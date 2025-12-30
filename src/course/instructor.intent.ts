@@ -116,6 +116,7 @@ export class InstructorIntent {
                 Bucket: bucketName,
                 Key: s3Key,
                 ContentType: contentType,
+                
             });
 
             const presignedUrl = await getSignedUrl(s3Client, command, { expiresIn: 3600 }); // URL valid for 1 hour
@@ -502,7 +503,7 @@ export class InstructorIntent {
                                 const lecPayload = {
                                     title: lecData.title,
                                     videoUrl,
-                                    videoProvider: lecData.videoProvider || (lecData.s3Key ? 's3' : 'cloudinary'),
+                                    videoProvider: lecData.videoProvider || 's3',
                                     s3Key: lecData.s3Key,
                                     s3Bucket: bucket,
                                     muxAssetId: lecData.muxAssetId,
@@ -538,7 +539,53 @@ export class InstructorIntent {
                 }
             });
 
-            res.json({ success: true, data: updatedCourse });
+            let response: any = updatedCourse;
+
+            if (updatedCourse) {
+                const { getPresignedReadUrl } = await import('../core/s3Service');
+
+                let thumbnail = updatedCourse.thumbnail;
+                // Sign Thumbnail
+                if (updatedCourse.s3Key) {
+                    try {
+                        thumbnail = await getPresignedReadUrl(updatedCourse.s3Key, updatedCourse.s3Bucket || undefined);
+                    } catch (e) {
+                        logger.error('Failed to sign thumbnail', { s3Key: updatedCourse.s3Key });
+                    }
+                }
+
+                // Sign Resources
+                const courseResources = await Promise.all(updatedCourse.courseResources.map(async (r) => {
+                    let url = '';
+                    try {
+                        url = await getPresignedReadUrl(r.s3Key, r.s3Bucket);
+                    } catch (e) { }
+                    return { ...r, url };
+                }));
+
+                // Sign Lectures
+                const sections = await Promise.all(updatedCourse.sections.map(async (section) => {
+                    const lectures = await Promise.all(section.lectures.map(async (lecture) => {
+                        let videoUrl = lecture.videoUrl;
+                        if (lecture.s3Key) {
+                            try {
+                                videoUrl = await getPresignedReadUrl(lecture.s3Key, lecture.s3Bucket || undefined);
+                            } catch (e) { }
+                        }
+                        return { ...lecture, videoUrl };
+                    }));
+                    return { ...section, lectures };
+                }));
+
+                response = {
+                    ...updatedCourse,
+                    thumbnail,
+                    courseResources,
+                    sections
+                };
+            }
+
+            res.json({ success: true, data: response });
 
         } catch (error: any) {
             logger.error('InstructorIntent.updateCourse: Failed', { error });
@@ -597,13 +644,13 @@ export class InstructorIntent {
                 const lectures = await Promise.all(section.lectures.map(async (lecture) => {
                     let videoUrl = lecture.videoUrl;
                     if (lecture.s3Key) {
-                        // Optional: Signed URL for preview
                         try {
-                            // videoUrl = await getPresignedReadUrl(lecture.s3Key, lecture.s3Bucket || undefined);
-                            // actually let's keep the raw s3:// url for the form, or maybe provide a 'previewUrl' field
-                        } catch (e) { }
+                            videoUrl = await getPresignedReadUrl(lecture.s3Key, lecture.s3Bucket || undefined);
+                        } catch (e) {
+                            logger.error('Failed to sign video', { s3Key: lecture.s3Key });
+                        }
                     }
-                    return lecture;
+                    return { ...lecture, videoUrl };
                 }));
                 return { ...section, lectures };
             }));
