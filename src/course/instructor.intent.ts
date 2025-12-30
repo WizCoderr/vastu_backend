@@ -62,7 +62,8 @@ export class InstructorIntent {
                 include: {
                     sections: {
                         include: { lectures: true }
-                    }
+                    },
+                    courseResources: true
                 }
             });
             const { getPresignedReadUrl } = await import('../core/s3Service');
@@ -78,6 +79,15 @@ export class InstructorIntent {
                         }
                     }
 
+                    // Sign Resources
+                    const courseResources = await Promise.all(course.courseResources.map(async (r) => {
+                        let url = '';
+                        try {
+                            url = await getPresignedReadUrl(r.s3Key, r.s3Bucket);
+                        } catch (e) { }
+                        return { ...r, url };
+                    }));
+
                     // Sign lectures
                     const sections = await Promise.all(course.sections.map(async (section) => {
                         const lectures = await Promise.all(section.lectures.map(async (lecture) => {
@@ -92,7 +102,7 @@ export class InstructorIntent {
                         return { ...section, lectures };
                     }));
 
-                    return { ...course, thumbnail: thumbUrl, sections };
+                    return { ...course, thumbnail: thumbUrl, sections, courseResources };
                 })
             );
 
@@ -448,11 +458,8 @@ export class InstructorIntent {
 
                 // 2. Resources (Full Sync)
                 if (data.courseResources) {
-                    const incomingIds = data.courseResources.map(r => r.id).filter(Boolean) as string[];
-                    // Delete removed resources
-                    await tx.courseResource.deleteMany({
-                        where: { courseId, id: { notIn: incomingIds } }
-                    });
+                    // Non-destructive update: Only update or create, do not delete missing.
+                    // To delete resources, use explicit deleteResource endpoint.
 
                     for (const resData of data.courseResources) {
                         const payload = {

@@ -58,7 +58,7 @@ export const deleteObject = async (key: string, bucket?: string) => {
         logger.info('Deleted S3 object', { key, bucket: bucketName });
     } catch (error) {
         logger.error('Failed to delete S3 object', { error, key });
-        throw error;
+        // throw error; // Allow deletion to proceed even if S3 fails
     }
 };
 

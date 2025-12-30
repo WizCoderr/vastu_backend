@@ -10,7 +10,8 @@ export class CourseReducer {
                     include: {
                         lectures: true
                     }
-                }
+                },
+                courseResources: true
             }
         });
         const { getPresignedReadUrl } = await import('../core/s3Service');
@@ -29,7 +30,16 @@ export class CourseReducer {
                     videoUrl: l.s3Key ? await getPresignedReadUrl(l.s3Key, l.s3Bucket || undefined).catch(() => l.videoUrl) : l.videoUrl,
                     videoProvider: l.videoProvider
                 })))
-            })))
+            }))),
+            resources: await Promise.all(c.courseResources
+                .filter(r => r.type === 'FREE')
+                .map(async (r) => ({
+                    id: r.id,
+                    title: r.title,
+                    type: r.type,
+                    url: r.s3Key ? await getPresignedReadUrl(r.s3Key, r.s3Bucket || undefined).catch(() => '') : ''
+                }))
+            )
         })));
 
         return Result.ok(dtos);
@@ -45,7 +55,8 @@ export class CourseReducer {
                             include: {
                                 lectures: true
                             }
-                        }
+                        },
+                        courseResources: true
                     }
                 }
             },
@@ -55,7 +66,7 @@ export class CourseReducer {
 
         const { getPresignedReadUrl } = await import('../core/s3Service');
 
-        // Map Decimal to number for DTO
+        // Map Decimal to number for DTO & Sign URLs
         const dtos = await Promise.all(courses.map(async (c) => ({
             ...c,
             price: Number(c.price),
@@ -69,7 +80,16 @@ export class CourseReducer {
                     videoUrl: l.s3Key ? await getPresignedReadUrl(l.s3Key, l.s3Bucket || undefined).catch(() => l.videoUrl) : l.videoUrl,
                     videoProvider: l.videoProvider
                 })))
-            })))
+            }))),
+            resources: await Promise.all(c.courseResources
+                .filter(r => r.type === 'FREE')
+                .map(async (r) => ({
+                    id: r.id,
+                    title: r.title,
+                    type: r.type,
+                    url: r.s3Key ? await getPresignedReadUrl(r.s3Key, r.s3Bucket || undefined).catch(() => '') : ''
+                }))
+            )
         })));
 
         return Result.ok(dtos);
