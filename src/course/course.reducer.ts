@@ -82,7 +82,6 @@ export class CourseReducer {
                 })))
             }))),
             resources: await Promise.all(c.courseResources
-                .filter(r => r.type === 'FREE')
                 .map(async (r) => ({
                     id: r.id,
                     title: r.title,

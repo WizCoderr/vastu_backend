@@ -427,6 +427,7 @@ export class InstructorIntent {
                 s3Bucket: z.string().optional().nullable(),
                 sections: z.array(sectionSchema).optional(),
                 courseResources: z.array(resourceSchema).optional(),
+                resources: z.array(resourceSchema).optional(), // Alias for frontend compatibility
                 published: z.boolean().optional(),
             });
 
@@ -444,9 +445,7 @@ export class InstructorIntent {
                     courseUpdateIs.s3Bucket = data.s3Bucket || process.env.AWS_BUCKET_NAME;
                     courseUpdateIs.thumbnail = `s3://${courseUpdateIs.s3Bucket}/${courseUpdateIs.s3Key}`;
                 } else if (data.s3Key === null) {
-                    // Explicit removal if null passed? Or just ignore if undefined.
-                    // If strictly null, maybe clear? schema says optional.
-                    // Ignoring for now unless explicit clear requested.
+                    // Explicit removal if null passed
                 }
 
                 if (Object.keys(courseUpdateIs).length > 0) {
@@ -457,11 +456,10 @@ export class InstructorIntent {
                 }
 
                 // 2. Resources (Full Sync)
-                if (data.courseResources) {
-                    // Non-destructive update: Only update or create, do not delete missing.
-                    // To delete resources, use explicit deleteResource endpoint.
+                const resourcesToUpdate = data.courseResources || data.resources;
 
-                    for (const resData of data.courseResources) {
+                if (resourcesToUpdate) {
+                    for (const resData of resourcesToUpdate) {
                         const payload = {
                             courseId,
                             title: resData.title,
@@ -471,15 +469,22 @@ export class InstructorIntent {
                         };
 
                         if (resData.id) {
-                            await tx.courseResource.update({
-                                where: { id: resData.id },
-                                data: {
-                                    title: resData.title,
-                                    s3Key: resData.s3Key,
-                                    s3Bucket: resData.s3Bucket || process.env.AWS_BUCKET_NAME!,
-                                    type: resData.type as any
-                                }
-                            });
+                            // Verify existence before update to avoid 500
+                            const existing = await tx.courseResource.findUnique({ where: { id: resData.id } });
+                            if (existing) {
+                                await tx.courseResource.update({
+                                    where: { id: resData.id },
+                                    data: {
+                                        title: resData.title,
+                                        s3Key: resData.s3Key,
+                                        s3Bucket: resData.s3Bucket || process.env.AWS_BUCKET_NAME!,
+                                        type: resData.type as any
+                                    }
+                                });
+                            } else {
+                                // If ID provided but not found, create new (or ignore, but creating seems safer to avoid data loss)
+                                await tx.courseResource.create({ data: payload });
+                            }
                         } else {
                             await tx.courseResource.create({ data: payload });
                         }
@@ -503,11 +508,21 @@ export class InstructorIntent {
 
                     for (const sectionData of data.sections) {
                         let sectionId = sectionData.id;
+
+                        // Check if section exists if ID is provided
                         if (sectionId) {
-                            await tx.section.update({
-                                where: { id: sectionId },
-                                data: { title: sectionData.title }
-                            });
+                            const existingSection = await tx.section.findUnique({ where: { id: sectionId } });
+                            if (existingSection) {
+                                await tx.section.update({
+                                    where: { id: sectionId },
+                                    data: { title: sectionData.title }
+                                });
+                            } else {
+                                const newSec = await tx.section.create({
+                                    data: { title: sectionData.title, courseId }
+                                });
+                                sectionId = newSec.id;
+                            }
                         } else {
                             const newSec = await tx.section.create({
                                 data: { title: sectionData.title, courseId }
@@ -546,10 +561,18 @@ export class InstructorIntent {
                                 }
 
                                 if (lecData.id) {
-                                    await tx.lecture.update({
-                                        where: { id: lecData.id },
-                                        data: lecPayload
-                                    });
+                                    // Check if lecture exists
+                                    const existingLecture = await tx.lecture.findUnique({ where: { id: lecData.id } });
+                                    if (existingLecture) {
+                                        await tx.lecture.update({
+                                            where: { id: lecData.id },
+                                            data: lecPayload
+                                        });
+                                    } else {
+                                        await tx.lecture.create({
+                                            data: { ...lecPayload, sectionId: sectionId! }
+                                        });
+                                    }
                                 } else {
                                     await tx.lecture.create({
                                         data: { ...lecPayload, sectionId: sectionId! }
