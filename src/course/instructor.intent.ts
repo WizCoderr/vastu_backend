@@ -120,18 +120,13 @@ export class InstructorIntent {
 
             const presignedUrl = await getSignedUrl(s3Client, command, { expiresIn: 3600 }); // URL valid for 1 hour
 
-            // Standard flat structure requested by frontend
+            // Plain JSON response structure
             const result = {
                 url: presignedUrl,
                 method: 'PUT',
                 headers: {
                     'Content-Type': contentType
-                },
-                // Metadata for subsequent API calls
-                key: s3Key,
-                s3Key: s3Key,
-                s3Bucket: bucketName,
-                fileType: fileType
+                }
             };
 
             logger.info('InstructorIntent.getPresignedUrl: Presigned URL generated successfully', { s3Key });
@@ -357,6 +352,275 @@ export class InstructorIntent {
         } catch (error) {
             logger.error('Failed to delete resource', { error });
             res.status(500).json({ error: 'Failed to delete resource' });
+        }
+    }
+
+    // Update a course (including sections, lectures, and resources)
+    static async updateCourse(req: Request, res: Response) {
+        const { courseId } = req.params;
+        logger.info('InstructorIntent.updateCourse: Updating course', { courseId });
+        try {
+            // Schemas
+            const lectureSchema = z.object({
+                id: z.string().optional(),
+                title: z.string(),
+                videoUrl: z.string().optional(),
+                videoProvider: z.string().optional(),
+                s3Key: z.string().optional().nullable(),
+                s3Bucket: z.string().optional().nullable(),
+                muxAssetId: z.string().optional().nullable(),
+                muxPlaybackId: z.string().optional().nullable(),
+            });
+
+            const sectionSchema = z.object({
+                id: z.string().optional(),
+                title: z.string(),
+                lectures: z.array(lectureSchema).optional().default([]),
+            });
+
+            const resourceSchema = z.object({
+                id: z.string().optional(),
+                title: z.string(),
+                s3Key: z.string(),
+                s3Bucket: z.string().optional().nullable(),
+                type: z.enum(['FREE', 'PAID']).optional().default('FREE'),
+            });
+
+            const courseSchema = z.object({
+                title: z.string().optional(),
+                description: z.string().optional(),
+                price: z.coerce.string().optional(),
+                s3Key: z.string().optional().nullable(),
+                s3Bucket: z.string().optional().nullable(),
+                sections: z.array(sectionSchema).optional(),
+                courseResources: z.array(resourceSchema).optional(),
+                published: z.boolean().optional(),
+            });
+
+            const data = courseSchema.parse(req.body);
+
+            await prisma.$transaction(async (tx) => {
+                // 1. Update Course Basic Info
+                const courseUpdateIs: any = {};
+                if (data.title) courseUpdateIs.title = data.title;
+                if (data.description !== undefined) courseUpdateIs.description = data.description;
+                if (data.price) courseUpdateIs.price = data.price;
+                if (data.published !== undefined) courseUpdateIs.published = data.published;
+                if (data.s3Key) {
+                    courseUpdateIs.s3Key = data.s3Key;
+                    courseUpdateIs.s3Bucket = data.s3Bucket || process.env.AWS_BUCKET_NAME;
+                    courseUpdateIs.thumbnail = `s3://${courseUpdateIs.s3Bucket}/${courseUpdateIs.s3Key}`;
+                } else if (data.s3Key === null) {
+                    // Explicit removal if null passed? Or just ignore if undefined.
+                    // If strictly null, maybe clear? schema says optional.
+                    // Ignoring for now unless explicit clear requested.
+                }
+
+                if (Object.keys(courseUpdateIs).length > 0) {
+                    await tx.course.update({
+                        where: { id: courseId },
+                        data: courseUpdateIs,
+                    });
+                }
+
+                // 2. Resources (Full Sync)
+                if (data.courseResources) {
+                    const incomingIds = data.courseResources.map(r => r.id).filter(Boolean) as string[];
+                    // Delete removed resources
+                    await tx.courseResource.deleteMany({
+                        where: { courseId, id: { notIn: incomingIds } }
+                    });
+
+                    for (const resData of data.courseResources) {
+                        const payload = {
+                            courseId,
+                            title: resData.title,
+                            s3Key: resData.s3Key,
+                            s3Bucket: resData.s3Bucket || process.env.AWS_BUCKET_NAME!,
+                            type: resData.type as any
+                        };
+
+                        if (resData.id) {
+                            await tx.courseResource.update({
+                                where: { id: resData.id },
+                                data: {
+                                    title: resData.title,
+                                    s3Key: resData.s3Key,
+                                    s3Bucket: resData.s3Bucket || process.env.AWS_BUCKET_NAME!,
+                                    type: resData.type as any
+                                }
+                            });
+                        } else {
+                            await tx.courseResource.create({ data: payload });
+                        }
+                    }
+                }
+
+                // 3. Sections & Lectures (Full Sync)
+                if (data.sections) {
+                    const incomingSectionIds = data.sections.map(s => s.id).filter(Boolean) as string[];
+
+                    // Find and delete removed sections (and their lectures)
+                    const sectionsToDelete = await tx.section.findMany({
+                        where: { courseId, id: { notIn: incomingSectionIds } },
+                        select: { id: true }
+                    });
+                    if (sectionsToDelete.length > 0) {
+                        const delIds = sectionsToDelete.map(s => s.id);
+                        await tx.lecture.deleteMany({ where: { sectionId: { in: delIds } } });
+                        await tx.section.deleteMany({ where: { id: { in: delIds } } });
+                    }
+
+                    for (const sectionData of data.sections) {
+                        let sectionId = sectionData.id;
+                        if (sectionId) {
+                            await tx.section.update({
+                                where: { id: sectionId },
+                                data: { title: sectionData.title }
+                            });
+                        } else {
+                            const newSec = await tx.section.create({
+                                data: { title: sectionData.title, courseId }
+                            });
+                            sectionId = newSec.id;
+                        }
+
+                        // Sync Lectures
+                        if (sectionData.lectures) {
+                            const incomingLectureIds = sectionData.lectures.map(l => l.id).filter(Boolean) as string[];
+                            await tx.lecture.deleteMany({
+                                where: { sectionId, id: { notIn: incomingLectureIds } }
+                            });
+
+                            for (const lecData of sectionData.lectures) {
+                                // Construct videoUrl if s3Key present
+                                const bucket = lecData.s3Bucket || process.env.AWS_BUCKET_NAME!;
+                                const videoUrl = lecData.s3Key
+                                    ? `s3://${bucket}/${lecData.s3Key}`
+                                    : (lecData.videoUrl || '');
+
+                                const lecPayload = {
+                                    title: lecData.title,
+                                    videoUrl,
+                                    videoProvider: lecData.videoProvider || (lecData.s3Key ? 's3' : 'cloudinary'),
+                                    s3Key: lecData.s3Key,
+                                    s3Bucket: bucket,
+                                    muxAssetId: lecData.muxAssetId,
+                                    muxPlaybackId: lecData.muxPlaybackId,
+                                };
+
+                                if (lecData.id) {
+                                    await tx.lecture.update({
+                                        where: { id: lecData.id },
+                                        data: lecPayload
+                                    });
+                                } else {
+                                    await tx.lecture.create({
+                                        data: { ...lecPayload, sectionId: sectionId! }
+                                    });
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+
+            // Return updated course with URLs signed?
+            // Re-using logic from getInstructorCourses would be nice, but for now just returning raw.
+            // Actually user might want to see the result immediately.
+            // Let's return the simplified object.
+
+            const updatedCourse = await prisma.course.findUnique({
+                where: { id: courseId },
+                include: {
+                    sections: { include: { lectures: true } },
+                    courseResources: true
+                }
+            });
+
+            res.json({ success: true, data: updatedCourse });
+
+        } catch (error: any) {
+            logger.error('InstructorIntent.updateCourse: Failed', { error });
+            res.status(500).json({ error: 'Failed to update course', details: error instanceof z.ZodError ? error.issues : error.message });
+        }
+    }
+
+    // Get full course details for instructor (including s3 keys, unpublished content)
+    static async getCourseDetails(req: Request, res: Response) {
+        const { courseId } = req.params;
+        logger.info('InstructorIntent.getCourseDetails: Fetching details', { courseId });
+        try {
+            const course = await prisma.course.findUnique({
+                where: { id: courseId },
+                include: {
+                    sections: {
+                        include: { lectures: true }
+                    },
+                    courseResources: true
+                }
+            });
+
+            if (!course) {
+                return res.status(404).json({ error: 'Course not found' });
+            }
+
+            const { getPresignedReadUrl } = await import('../core/s3Service');
+
+            // 1. Sign Course Thumbnail
+            let thumbnail = course.thumbnail;
+            if (course.s3Key) {
+                try {
+                    thumbnail = await getPresignedReadUrl(course.s3Key, course.s3Bucket || undefined);
+                } catch (e) {
+                    logger.error('Failed to sign thumbnail', { s3Key: course.s3Key });
+                }
+            }
+
+            // 2. Sign Resource URLs
+            const resources = await Promise.all(course.courseResources.map(async (r) => {
+                let url = '';
+                try {
+                    url = await getPresignedReadUrl(r.s3Key, r.s3Bucket);
+                } catch (e) { }
+                return { ...r, url };
+            }));
+
+            // 3. Sign Lecture Videos (if S3) ?
+            // Usually we don't sign all videos in GET details because they expire.
+            // But for "Edit" view, we might need to know if they are valid or preview them.
+            // For now, let's just return the metadata (s3Key, videoProvider) so UI knows it exists.
+            // If UI needs to play, it calls the stream-url endpoint. Or we can sign them here if needed.
+            // Let's sign them for convenience if it's the instructor viewing.
+
+            const sections = await Promise.all(course.sections.map(async (section) => {
+                const lectures = await Promise.all(section.lectures.map(async (lecture) => {
+                    let videoUrl = lecture.videoUrl;
+                    if (lecture.s3Key) {
+                        // Optional: Signed URL for preview
+                        try {
+                            // videoUrl = await getPresignedReadUrl(lecture.s3Key, lecture.s3Bucket || undefined);
+                            // actually let's keep the raw s3:// url for the form, or maybe provide a 'previewUrl' field
+                        } catch (e) { }
+                    }
+                    return lecture;
+                }));
+                return { ...section, lectures };
+            }));
+
+            res.json({
+                success: true,
+                data: {
+                    ...course,
+                    thumbnail,
+                    courseResources: resources,
+                    sections
+                }
+            });
+
+        } catch (error) {
+            logger.error('InstructorIntent.getCourseDetails: Failed', { error });
+            res.status(500).json({ error: 'Failed to get course details' });
         }
     }
 }

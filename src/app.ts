@@ -18,6 +18,7 @@ const allowedOrigins = [
     "https://admin.vastuarunsharma.com",
     "https://vastuarunsharma.com",
     "https://api.vastuarunsharma.com",
+    "http://127.0.0.1:3001",
 ];
 
 app.use(cors({
