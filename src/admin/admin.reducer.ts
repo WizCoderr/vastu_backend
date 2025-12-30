@@ -146,4 +146,15 @@ export class AdminReducer {
             return Result.fail('Failed to fetch payment stats');
         }
     }
+
+    static async deleteStorageFile(key: string): Promise<Result<any>> {
+        try {
+            const { deleteObject } = await import('../core/s3Service');
+            await deleteObject(key);
+            return Result.ok({ message: 'File deleted successfully' });
+        } catch (error) {
+            logger.error('AdminReducer.deleteStorageFile: Failed', { error, key });
+            return Result.fail('Failed to delete file');
+        }
+    }
 }
