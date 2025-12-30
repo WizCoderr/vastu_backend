@@ -57,7 +57,14 @@ export class InstructorIntent {
     static async getInstructorCourses(req: Request, res: Response) {
         logger.info('InstructorIntent.getInstructorCourses: Listing all courses for instructor');
         try {
-            const courses = await prisma.course.findMany({ orderBy: { id: 'desc' } });
+            const courses = await prisma.course.findMany({
+                orderBy: { id: 'desc' },
+                include: {
+                    sections: {
+                        include: { lectures: true }
+                    }
+                }
+            });
             const { getPresignedReadUrl } = await import('../core/s3Service');
 
             const coursesWithUrls = await Promise.all(
@@ -70,7 +77,22 @@ export class InstructorIntent {
                             logger.error('Failed to sign thumbnail', { s3Key: course.s3Key });
                         }
                     }
-                    return { ...course, thumbnail: thumbUrl };
+
+                    // Sign lectures
+                    const sections = await Promise.all(course.sections.map(async (section) => {
+                        const lectures = await Promise.all(section.lectures.map(async (lecture) => {
+                            let videoUrl = lecture.videoUrl;
+                            if (lecture.s3Key) {
+                                try {
+                                    videoUrl = await getPresignedReadUrl(lecture.s3Key, lecture.s3Bucket || undefined);
+                                } catch (e) { /* ignore signing error */ }
+                            }
+                            return { ...lecture, videoUrl };
+                        }));
+                        return { ...section, lectures };
+                    }));
+
+                    return { ...course, thumbnail: thumbUrl, sections };
                 })
             );
 
@@ -116,7 +138,7 @@ export class InstructorIntent {
                 Bucket: bucketName,
                 Key: s3Key,
                 ContentType: contentType,
-                
+
             });
 
             const presignedUrl = await getSignedUrl(s3Client, command, { expiresIn: 3600 }); // URL valid for 1 hour
@@ -496,19 +518,25 @@ export class InstructorIntent {
                             for (const lecData of sectionData.lectures) {
                                 // Construct videoUrl if s3Key present
                                 const bucket = lecData.s3Bucket || process.env.AWS_BUCKET_NAME!;
-                                const videoUrl = lecData.s3Key
-                                    ? `s3://${bucket}/${lecData.s3Key}`
-                                    : (lecData.videoUrl || '');
 
-                                const lecPayload = {
+                                const lecPayload: any = {
                                     title: lecData.title,
-                                    videoUrl,
                                     videoProvider: lecData.videoProvider || 's3',
-                                    s3Key: lecData.s3Key,
                                     s3Bucket: bucket,
                                     muxAssetId: lecData.muxAssetId,
                                     muxPlaybackId: lecData.muxPlaybackId,
                                 };
+
+                                if (lecData.s3Key !== undefined) {
+                                    lecPayload.s3Key = lecData.s3Key;
+                                    if (lecData.s3Key) {
+                                        lecPayload.videoUrl = `s3://${bucket}/${lecData.s3Key}`;
+                                    } else {
+                                        lecPayload.videoUrl = ''; // Clear if s3Key explicitly null
+                                    }
+                                } else if (lecData.videoUrl !== undefined) {
+                                    lecPayload.videoUrl = lecData.videoUrl;
+                                }
 
                                 if (lecData.id) {
                                     await tx.lecture.update({
