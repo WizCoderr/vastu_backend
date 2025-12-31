@@ -8,10 +8,7 @@ import { EnrollmentRepository } from '../enrollment/enrollment.repository';
 
 export class PaymentReducer {
 
-
-
     // --- Razorpay Methods ---
-
     static async createRazorpayOrder(userId: string, courseId: string): Promise<Result<{ orderId: string, amount: number, currency: string, keyId: string }>> {
         // 1. Verify Course
         const course = await prisma.course.findUnique({ where: { id: courseId } });
@@ -45,6 +42,8 @@ export class PaymentReducer {
         try {
             const { verifyRazorpaySignature } = await import('../core/razorpayService');
             const isValid = verifyRazorpaySignature(razorpayOrderId, razorpayPaymentId, razorpaySignature);
+            const course = await prisma.course.findUnique({ where: { id: courseId } });
+            if (!course) return Result.fail('Course not found');
 
             if (!isValid) return Result.fail('Invalid signature');
 
@@ -53,9 +52,8 @@ export class PaymentReducer {
                 data: {
                     userId,
                     courseId,
-                    amount: "0", // Ideally fetch from course or order history
+                    amount: course.price,
                     status: 'COMPLETED',
-                    providerId: null,
                     razorpayOrderId: razorpayOrderId,
                     razorpayPaymentId: razorpayPaymentId,
                     razorpaySignature: razorpaySignature
