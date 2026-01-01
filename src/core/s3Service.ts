@@ -1,6 +1,7 @@
 import { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand, ListObjectsV2Command } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import logger from '../utils/logger';
+import { getCloudFrontSignedUrl, isCloudFrontConfigured } from './cloudFrontService';
 
 const s3Client = new S3Client({
     region: process.env.AWS_REGION || 'us-east-1',
@@ -31,11 +32,18 @@ export const getPresignedUploadUrl = async (key: string, contentType: string, bu
 
 export const getPresignedReadUrl = async (key: string, bucket?: string) => {
     try {
-        const bucketName = bucket || process.env.AWS_BUCKET_NAME;
-        if (!bucketName) throw new Error('AWS_BUCKET_NAME is not configured');
+        const defaultBucket = process.env.AWS_BUCKET_NAME;
+        const targetBucket = bucket || defaultBucket;
+
+        // If CloudFront is configured AND we are targeting the default bucket, use CloudFront
+        if (isCloudFrontConfigured() && targetBucket === defaultBucket) {
+            return getCloudFrontSignedUrl(key);
+        }
+
+        if (!targetBucket) throw new Error('AWS_BUCKET_NAME is not configured');
 
         const command = new GetObjectCommand({
-            Bucket: bucketName,
+            Bucket: targetBucket,
             Key: key
         });
 
