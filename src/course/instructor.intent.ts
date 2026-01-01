@@ -102,7 +102,9 @@ export class InstructorIntent {
                         return { ...section, lectures };
                     }));
 
-                    return { ...course, thumbnail: thumbUrl, sections, courseResources };
+                    // Count students for instructor/admin dashboard
+                    const studentCount = await prisma.enrollment.count({ where: { courseId: course.id } });
+                    return { ...course, thumbnail: thumbUrl, sections, courseResources, studentCount };
                 })
             );
 
@@ -110,6 +112,26 @@ export class InstructorIntent {
         } catch (error) {
             logger.error('InstructorIntent.getInstructorCourses: Failed to list courses', { error });
             res.status(500).json({ success: false, error: 'Failed to list courses' });
+        }
+    }
+
+    // List students enrolled in a course (admin/instructor)
+    static async getCourseStudents(req: Request, res: Response) {
+        const { courseId } = req.params;
+        logger.info('InstructorIntent.getCourseStudents: Fetching students', { courseId });
+        try {
+            const enrollments = await prisma.enrollment.findMany({
+                where: { courseId },
+                include: { user: true },
+                orderBy: { createdAt: 'desc' }
+            });
+
+            const students = enrollments.map(e => ({ id: e.user.id, name: e.user.name, email: e.user.email, enrolledAt: e.createdAt }));
+            const count = students.length;
+            res.json({ success: true, data: { students, count } });
+        } catch (error) {
+            logger.error('InstructorIntent.getCourseStudents: Failed to fetch students', { error, courseId });
+            res.status(500).json({ success: false, error: 'Failed to fetch students' });
         }
     }
 

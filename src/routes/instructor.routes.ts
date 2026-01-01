@@ -21,6 +21,8 @@ router.post('/courses', requireAdmin, InstructorIntent.createCourse as RequestHa
 // Get all courses (admin/instructor view)
 router.get('/courses', requireAdmin, InstructorIntent.getInstructorCourses as RequestHandler);
 router.get('/courses/:courseId', requireAdmin, InstructorIntent.getCourseDetails as RequestHandler);
+// Admin-only: list students in a course
+router.get('/courses/:courseId/students', requireAdmin, InstructorIntent.getCourseStudents as RequestHandler);
 
 // Create a section in a course
 router.post('/courses/:courseId/sections', requireAdmin, InstructorIntent.createSection as RequestHandler);

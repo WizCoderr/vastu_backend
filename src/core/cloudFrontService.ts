@@ -11,10 +11,29 @@ export const getCloudFrontSignedUrl = (key: string): string => {
              throw new Error("CloudFront credentials are missing");
         }
 
-        const url = `https://${CLOUDFRONT_DOMAIN}/${key}`;
+        // Ensure the domain doesn't have a trailing slash
+        const domain = CLOUDFRONT_DOMAIN.replace(/\/$/, "");
 
-        // Decode the base64 private key
-        const privateKey = Buffer.from(CLOUDFRONT_PRIVATE_KEY_BASE64, 'base64').toString('utf-8');
+        // Encode the key to handle spaces and special characters (e.g. "my file.jpg" -> "my%20file.jpg")
+        // encodeURI preserves slashes which is what we want for object keys
+        const encodedKey = encodeURI(key);
+
+        const url = `https://${domain}/${encodedKey}`;
+
+        // Support either a raw PEM or a base64-encoded PEM in the env var.
+        // If the env var contains the PEM directly (starts with '-----BEGIN'),
+        // use it as-is; otherwise try base64 decoding.
+        let privateKey = CLOUDFRONT_PRIVATE_KEY_BASE64 || "";
+        if (!privateKey.startsWith("-----BEGIN")) {
+            try {
+                privateKey = Buffer.from(privateKey, "base64").toString("utf-8");
+            } catch (e) {
+                throw new Error("Invalid CloudFront private key format; expected PEM or base64-encoded PEM");
+            }
+        }
+        if (!privateKey.includes("PRIVATE KEY")) {
+            throw new Error("Decoded CloudFront private key does not appear to be a valid PEM private key");
+        }
 
         // The dateLess option creates a URL that doesn't expire (or uses default),
         // but usually we want an expiration.
@@ -30,12 +49,19 @@ export const getCloudFrontSignedUrl = (key: string): string => {
         // import { getSignedUrl } from "@aws-sdk/cloudfront-signer";
         // getSignedUrl({ url, keyPairId, dateLessThan, privateKey })
 
+        const expires = Math.floor(Date.now() / 1000) + 60 * 60; // 1 hour from now (epoch seconds)
         const signedUrl = getSignedUrl({
             url,
             keyPairId: CLOUDFRONT_KEY_PAIR_ID,
-            dateLessThan: new Date(Date.now() + 1000 * 60 * 60 * 1).toISOString(), // 1 hour
+            dateLessThan: expires,
             privateKey,
         });
+
+        // Sanity-check the generated signed URL contains CloudFront query params
+        if (typeof signedUrl !== 'string' || !signedUrl.includes('Key-Pair-Id') || !signedUrl.includes('Signature')) {
+            logger.error('CloudFront signed URL missing expected query params', { domain, keyPairId: CLOUDFRONT_KEY_PAIR_ID });
+            throw new Error('Failed to generate a valid CloudFront signed URL');
+        }
 
         return signedUrl;
     } catch (error) {

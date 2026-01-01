@@ -35,9 +35,14 @@ export const getPresignedReadUrl = async (key: string, bucket?: string) => {
         const defaultBucket = process.env.AWS_BUCKET_NAME;
         const targetBucket = bucket || defaultBucket;
 
-        // If CloudFront is configured AND we are targeting the default bucket, use CloudFront
+        // If CloudFront is configured AND we are targeting the default bucket, try CloudFront
         if (isCloudFrontConfigured() && targetBucket === defaultBucket) {
-            return getCloudFrontSignedUrl(key);
+            try {
+                return getCloudFrontSignedUrl(key);
+            } catch (err) {
+                // Fall back to S3 pre-signed URL if CloudFront signing fails
+                logger.warn('CloudFront signing failed, falling back to S3 signed URL', { key, error: err });
+            }
         }
 
         if (!targetBucket) throw new Error('AWS_BUCKET_NAME is not configured');

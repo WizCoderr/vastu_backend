@@ -31,6 +31,8 @@ export interface CourseDto {
     isEnrolled?: boolean;
     sections?: SectionDto[];
     resources?: CourseResourceDto[];
+    // Number of students enrolled in this course (computed)
+    studentCount?: number;
 }
 
 export const progressUpdateSchema = z.object({

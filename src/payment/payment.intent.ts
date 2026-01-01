@@ -44,4 +44,15 @@ export class PaymentIntent {
             res.status(500).json({ error: "Payment verification failed" });
         }
     }
+
+    static async getAllPayments(req: AuthRequest, res: Response) {
+        try {
+            const result = await PaymentReducer.getAllPayments();
+            return result.success
+                ? res.json(result.data)
+                : res.status(400).json({ error: result.error });
+        } catch {
+            res.status(500).json({ error: "Failed to fetch payments" });
+        }
+    }
 }

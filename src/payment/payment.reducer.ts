@@ -63,4 +63,21 @@ export class PaymentReducer {
             return Result.fail(`Verification failed: ${error.message}`);
         }
     }
+
+    static async getAllPayments() {
+        const payments = await prisma.payment.findMany({
+            select: {
+                id: true,
+                userId: true,
+                courseId: true,
+                amount: true,
+                status: true,
+                createdAt: true,
+            },
+            orderBy: { createdAt: 'desc' }
+        });
+
+        return Result.ok({ payments: payments });
+    }
 }
+``

@@ -21,6 +21,8 @@ export class CourseReducer {
             ...c,
             price: Number(c.price),
             thumbnail: c.s3Key ? await getPresignedReadUrl(c.s3Key, c.s3Bucket || undefined).catch(() => c.thumbnail) : c.thumbnail,
+            // number of students enrolled
+            studentCount: await prisma.enrollment.count({ where: { courseId: c.id } }),
             sections: await Promise.all(c.sections.map(async (s) => ({
                 id: s.id,
                 title: s.title,
@@ -71,6 +73,8 @@ export class CourseReducer {
             ...c,
             price: Number(c.price),
             thumbnail: c.s3Key ? await getPresignedReadUrl(c.s3Key, c.s3Bucket || undefined).catch(() => c.thumbnail) : c.thumbnail,
+            // number of students enrolled
+            studentCount: await prisma.enrollment.count({ where: { courseId: c.id } }),
             sections: await Promise.all(c.sections.map(async (s) => ({
                 id: s.id,
                 title: s.title,
@@ -154,11 +158,15 @@ export class CourseReducer {
         }));
         const validResources = resources.filter((r): r is NonNullable<typeof r> => r !== null);
 
+        // Count the students enrolled in this course
+        const studentCount = await prisma.enrollment.count({ where: { courseId } });
+
         return Result.ok({
             ...course,
             price: Number(course.price),
             thumbnail: signedThumbnail,
             isEnrolled: !!enrollment,
+            studentCount,
             sections: sectionsWithSignedUrls,
             resources: validResources
         });
