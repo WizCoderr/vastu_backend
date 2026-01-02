@@ -45,6 +45,8 @@ export class InstructorIntent {
                 },
             });
 
+
+
             logger.info('InstructorIntent.createCourse: Course created successfully', { courseId: course.id });
             res.status(201).json({ success: true, data: course });
         } catch (error: any) {
@@ -66,14 +68,14 @@ export class InstructorIntent {
                     courseResources: true
                 }
             });
-            const { getPresignedReadUrl } = await import('../core/s3Service');
+            const { getPresignedReadUrl, getDirectS3Url } = await import('../core/s3Service');
 
             const coursesWithUrls = await Promise.all(
                 courses.map(async (course) => {
                     let thumbUrl = course.thumbnail;
                     if (course.s3Key) {
                         try {
-                            thumbUrl = await getPresignedReadUrl(course.s3Key, course.s3Bucket || undefined);
+                            thumbUrl = await getDirectS3Url(course.s3Key, course.s3Bucket || undefined);
                         } catch (e) {
                             logger.error('Failed to sign thumbnail', { s3Key: course.s3Key });
                         }
@@ -181,7 +183,9 @@ export class InstructorIntent {
                 method: 'PUT',
                 headers: {
                     'Content-Type': contentType
-                }
+                },
+                s3Key: s3Key,
+                s3Bucket: bucketName
             };
 
             logger.info('InstructorIntent.getPresignedUrl: Presigned URL generated successfully', { s3Key });
@@ -324,39 +328,84 @@ export class InstructorIntent {
             if (!course) {
                 return res.status(404).json({ error: 'Course not found' });
             }
-            const { deleteObject } = await import('../core/s3Service');
+            // 1. Delete Progress (Cascade from lectures)
+            // We need to find all lecture IDs first
+            const lectureIds: string[] = [];
+            course.sections.forEach(s => s.lectures.forEach(l => lectureIds.push(l.id)));
 
-            // 1. Delete Course Thumbnail
-            if (course.s3Key) {
-                await deleteObject(course.s3Key, course.s3Bucket ?? undefined);
+            if (lectureIds.length > 0) {
+                await prisma.progress.deleteMany({ where: { lectureId: { in: lectureIds } } });
             }
 
-            // 2. Delete Section Lctures (Videos)
+            // 2. Delete Payments
+            await prisma.payment.deleteMany({ where: { courseId } });
+
+            // 3. Delete Enrollments
+            await prisma.enrollment.deleteMany({ where: { courseId } });
+
+            // 4. Delete Course Resources (DB + S3)
+            const { deleteObject } = await import('../core/s3Service');
+            for (const resource of course.courseResources) {
+                if (resource.s3Key) {
+                    await deleteObject(resource.s3Key, resource.s3Bucket || undefined);
+                }
+            }
+            await prisma.courseResource.deleteMany({ where: { courseId } });
+
+            // 5. Delete Lectures & Sections (Videos from S3)
             for (const section of course.sections) {
                 for (const lecture of section.lectures) {
                     if (lecture.s3Key) {
-                        await deleteObject(lecture.s3Key, lecture.s3Bucket ?? undefined);
+                        await deleteObject(lecture.s3Key, lecture.s3Bucket || undefined);
                     }
-                    await prisma.lecture.delete({ where: { id: lecture.id } });
                 }
+                await prisma.lecture.deleteMany({ where: { sectionId: section.id } });
                 await prisma.section.delete({ where: { id: section.id } });
             }
 
-            // 3. Delete Course Resources (PDFs)
-            if (course.courseResources) {
-                for (const resource of course.courseResources) {
-                    if (resource.s3Key) {
-                        await deleteObject(resource.s3Key, resource.s3Bucket);
-                    }
-                    await prisma.courseResource.delete({ where: { id: resource.id } });
-                }
+            // 6. Delete Course Thumbnail from S3
+            if (course.s3Key) {
+                await deleteObject(course.s3Key, course.s3Bucket || undefined);
             }
 
+            // 7. Delete Course
             await prisma.course.delete({ where: { id: courseId } });
-            res.json({ success: true, message: 'Course, sections, lectures, resources, and S3 assets deleted' });
+
+            res.json({ success: true, message: 'Course and all related data/assets deleted successfully' });
         } catch (error) {
             logger.error('Failed to delete course', { error });
             res.status(500).json({ error: 'Failed to delete course' });
+        }
+    }
+
+    // Register a resource in the database after presigned URL upload
+    static async registerResource(req: Request, res: Response) {
+        logger.info('InstructorIntent.registerResource: Registering resource');
+        try {
+            const schema = z.object({
+                courseId: z.string().min(1),
+                s3Key: z.string().min(1),
+                s3Bucket: z.string().optional(),
+                title: z.string().min(1),
+                type: z.enum(['FREE', 'PAID']).optional().default('FREE')
+            });
+            const data = schema.parse(req.body);
+
+            const resource = await prisma.courseResource.create({
+                data: {
+                    courseId: data.courseId,
+                    title: data.title,
+                    s3Key: data.s3Key,
+                    s3Bucket: data.s3Bucket || process.env.AWS_BUCKET_NAME!,
+                    type: data.type
+                }
+            });
+
+            logger.info('Resource registered', { resourceId: resource.id, courseId: data.courseId });
+            res.status(201).json({ success: true, data: resource });
+        } catch (error: any) {
+            logger.error('Failed to register resource', { error });
+            res.status(400).json({ error: 'Failed to register resource', details: error instanceof z.ZodError ? error.issues : error.message });
         }
     }
 
@@ -622,13 +671,13 @@ export class InstructorIntent {
             let response: any = updatedCourse;
 
             if (updatedCourse) {
-                const { getPresignedReadUrl } = await import('../core/s3Service');
+                const { getPresignedReadUrl, getDirectS3Url } = await import('../core/s3Service');
 
                 let thumbnail = updatedCourse.thumbnail;
                 // Sign Thumbnail
                 if (updatedCourse.s3Key) {
                     try {
-                        thumbnail = await getPresignedReadUrl(updatedCourse.s3Key, updatedCourse.s3Bucket || undefined);
+                        thumbnail = await getDirectS3Url(updatedCourse.s3Key, updatedCourse.s3Bucket || undefined);
                     } catch (e) {
                         logger.error('Failed to sign thumbnail', { s3Key: updatedCourse.s3Key });
                     }
@@ -692,13 +741,13 @@ export class InstructorIntent {
                 return res.status(404).json({ error: 'Course not found' });
             }
 
-            const { getPresignedReadUrl } = await import('../core/s3Service');
+            const { getPresignedReadUrl, getDirectS3Url } = await import('../core/s3Service');
 
             // 1. Sign Course Thumbnail
             let thumbnail = course.thumbnail;
             if (course.s3Key) {
                 try {
-                    thumbnail = await getPresignedReadUrl(course.s3Key, course.s3Bucket || undefined);
+                    thumbnail = await getDirectS3Url(course.s3Key, course.s3Bucket || undefined);
                 } catch (e) {
                     logger.error('Failed to sign thumbnail', { s3Key: course.s3Key });
                 }

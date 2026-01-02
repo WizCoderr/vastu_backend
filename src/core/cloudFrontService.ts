@@ -8,15 +8,15 @@ const CLOUDFRONT_PRIVATE_KEY_BASE64 = process.env.CLOUDFRONT_PRIVATE_KEY;
 export const getCloudFrontSignedUrl = (key: string): string => {
     try {
         if (!CLOUDFRONT_DOMAIN || !CLOUDFRONT_KEY_PAIR_ID || !CLOUDFRONT_PRIVATE_KEY_BASE64) {
-             throw new Error("CloudFront credentials are missing");
+            throw new Error("CloudFront credentials are missing");
         }
 
         // Ensure the domain doesn't have a trailing slash
         const domain = CLOUDFRONT_DOMAIN.replace(/\/$/, "");
 
-        // Encode the key to handle spaces and special characters (e.g. "my file.jpg" -> "my%20file.jpg")
-        // encodeURI preserves slashes which is what we want for object keys
-        const encodedKey = encodeURI(key);
+        // Encode the key by splitting path segments
+        // strict encoding for each segment (handles ?, #, +, etc.)
+        const encodedKey = key.split('/').map(segment => encodeURIComponent(segment)).join('/');
 
         const url = `https://${domain}/${encodedKey}`;
 

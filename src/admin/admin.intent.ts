@@ -55,7 +55,18 @@ export class AdminIntent {
                     email: true,
                     name: true,
                     role: true,
-                    createdAt: true
+                    createdAt: true,
+                    enrollments: {
+                        select: {
+                            id: true,
+                            course: {
+                                select: {
+                                    id: true,
+                                    title: true
+                                }
+                            },
+                        }
+                    }
                 },
                 orderBy: { createdAt: 'desc' }
             });

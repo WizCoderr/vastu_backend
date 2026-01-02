@@ -26,7 +26,7 @@ export class AdminReducer {
                 }
             });
 
-            const { getPresignedReadUrl } = await import('../core/s3Service');
+            const { getPresignedReadUrl, getDirectS3Url } = await import('../core/s3Service');
 
             // TRANSFORM DATA
             const videoAssets = await Promise.all(lectures.map(async (l) => {
@@ -36,7 +36,7 @@ export class AdminReducer {
                 const mockDuration = "12:45";
 
                 const thumbKey = l.section.course.s3Key;
-                const signedThumb = thumbKey ? await getPresignedReadUrl(thumbKey, l.section.course.s3Bucket || undefined).catch(() => null) : l.section.course.thumbnail;
+                const signedThumb = thumbKey ? await getDirectS3Url(thumbKey, l.section.course.s3Bucket || undefined).catch(() => null) : l.section.course.thumbnail;
 
                 return {
                     id: l.id,

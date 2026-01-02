@@ -41,6 +41,7 @@ router.post('/upload/presigned-url', requireAdmin, InstructorIntent.getPresigned
 
 router.get('/courses/:courseId/resources', requireAdmin, InstructorIntent.getCourseResources as RequestHandler);
 router.delete('/resources/:resourceId', requireAdmin, InstructorIntent.deleteResource as RequestHandler);
+router.post('/resources/register', requireAdmin, InstructorIntent.registerResource as RequestHandler);
 
 // Register S3 Video
 router.post('/courses/:courseId/sections/:sectionId/lectures/register-s3-video', requireAdmin, InstructorIntent.registerS3Lecture as RequestHandler);

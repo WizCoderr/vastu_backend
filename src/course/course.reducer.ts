@@ -14,13 +14,13 @@ export class CourseReducer {
                 courseResources: true
             }
         });
-        const { getPresignedReadUrl } = await import('../core/s3Service');
+        const { getPresignedReadUrl, getDirectS3Url } = await import('../core/s3Service');
 
         // Map Decimal to number for DTO & Sign URLs
         const dtos = await Promise.all(courses.map(async (c) => ({
             ...c,
             price: Number(c.price),
-            thumbnail: c.s3Key ? await getPresignedReadUrl(c.s3Key, c.s3Bucket || undefined).catch(() => c.thumbnail) : c.thumbnail,
+            thumbnail: c.s3Key ? await getDirectS3Url(c.s3Key, c.s3Bucket || undefined).catch(() => c.thumbnail) : c.thumbnail,
             // number of students enrolled
             studentCount: await prisma.enrollment.count({ where: { courseId: c.id } }),
             sections: await Promise.all(c.sections.map(async (s) => ({
@@ -66,13 +66,13 @@ export class CourseReducer {
 
         const courses = enrollments.map(e => e.course);
 
-        const { getPresignedReadUrl } = await import('../core/s3Service');
+        const { getPresignedReadUrl, getDirectS3Url } = await import('../core/s3Service');
 
         // Map Decimal to number for DTO & Sign URLs
         const dtos = await Promise.all(courses.map(async (c) => ({
             ...c,
             price: Number(c.price),
-            thumbnail: c.s3Key ? await getPresignedReadUrl(c.s3Key, c.s3Bucket || undefined).catch(() => c.thumbnail) : c.thumbnail,
+            thumbnail: c.s3Key ? await getDirectS3Url(c.s3Key, c.s3Bucket || undefined).catch(() => c.thumbnail) : c.thumbnail,
             // number of students enrolled
             studentCount: await prisma.enrollment.count({ where: { courseId: c.id } }),
             sections: await Promise.all(c.sections.map(async (s) => ({
@@ -125,9 +125,9 @@ export class CourseReducer {
             });
         }
 
-        const { getPresignedReadUrl } = await import('../core/s3Service');
+        const { getPresignedReadUrl, getDirectS3Url } = await import('../core/s3Service');
         const signedThumbnail = course.s3Key
-            ? await getPresignedReadUrl(course.s3Key, course.s3Bucket || undefined).catch(() => course.thumbnail)
+            ? await getDirectS3Url(course.s3Key, course.s3Bucket || undefined).catch(() => course.thumbnail)
             : course.thumbnail;
 
         const sectionsWithSignedUrls = await Promise.all(course.sections.map(async (s) => ({
