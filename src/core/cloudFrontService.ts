@@ -70,6 +70,20 @@ export const getCloudFrontSignedUrl = (key: string): string => {
     }
 };
 
+export const getCloudFrontPublicUrl = (key: string): string => {
+    if (!CLOUDFRONT_DOMAIN) {
+        throw new Error("CloudFront domain is missing");
+    }
+
+    // Ensure the domain doesn't have a trailing slash
+    const domain = CLOUDFRONT_DOMAIN.replace(/\/$/, "");
+
+    // Encode the key by splitting path segments
+    const encodedKey = key.split('/').map(segment => encodeURIComponent(segment)).join('/');
+
+    return `https://${domain}/${encodedKey}`;
+};
+
 export const isCloudFrontConfigured = (): boolean => {
-    return !!(CLOUDFRONT_DOMAIN && CLOUDFRONT_KEY_PAIR_ID && CLOUDFRONT_PRIVATE_KEY_BASE64);
+    return !!CLOUDFRONT_DOMAIN;
 };

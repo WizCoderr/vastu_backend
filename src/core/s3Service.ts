@@ -1,7 +1,7 @@
 import { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand, ListObjectsV2Command, DeleteObjectsCommand, CopyObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import logger from '../utils/logger';
-import { getCloudFrontSignedUrl, isCloudFrontConfigured } from './cloudFrontService';
+import { getCloudFrontPublicUrl, isCloudFrontConfigured } from './cloudFrontService';
 
 const s3Client = new S3Client({
     region: process.env.AWS_REGION || 'us-east-1',
@@ -39,9 +39,9 @@ export const getPresignedReadUrl = async (key: string, bucket?: string) => {
         // BUT only for videos as requested
         const isVideo = key.includes('/videos/') || /\.(mp4|mov|avi|mkv|webm)$/i.test(key);
 
-        if (isCloudFrontConfigured() && targetBucket === defaultBucket && isVideo) {
+        if (isCloudFrontConfigured() && targetBucket === defaultBucket) {
             try {
-                return getCloudFrontSignedUrl(key);
+                return getCloudFrontPublicUrl(key);
             } catch (err) {
                 // Fall back to S3 pre-signed URL if CloudFront signing fails
                 logger.warn('CloudFront signing failed, falling back to S3 signed URL', { key, error: err });
@@ -73,6 +73,14 @@ export const getDirectS3Url = async (key: string, bucket?: string) => {
             Bucket: targetBucket,
             Key: key
         });
+
+        if (isCloudFrontConfigured() && targetBucket === process.env.AWS_BUCKET_NAME) {
+            try {
+                return getCloudFrontPublicUrl(key);
+            } catch (err) {
+                logger.warn('CloudFront public URL generation failed for direct URL, falling back to S3', { key, error: err });
+            }
+        }
 
         const url = await getSignedUrl(s3Client, command, { expiresIn: 3600 });
         return url;

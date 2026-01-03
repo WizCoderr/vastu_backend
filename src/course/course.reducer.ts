@@ -142,13 +142,10 @@ export class CourseReducer {
         })));
 
         const resources = await Promise.all(course.courseResources.map(async (r) => {
-            const isInstructor = userId ? userId === course.instructorId : false;
-            // Access control: if PAID and not (enrolled OR instructor), hide it.
-            // If userId is missing, enrollment & isInstructor are false/null, so PAID is hidden.
-            if (r.type === 'PAID' && !enrollment && !isInstructor) {
-                return null;
-            }
-            const url = r.s3Key ? await getPresignedReadUrl(r.s3Key, r.s3Bucket || undefined).catch(() => '') : '';
+            const url = r.s3Key
+                ? await getPresignedReadUrl(r.s3Key, r.s3Bucket || undefined).catch(() => '')
+                : '';
+
             return {
                 id: r.id,
                 title: r.title,
@@ -156,7 +153,6 @@ export class CourseReducer {
                 type: r.type
             };
         }));
-        const validResources = resources.filter((r): r is NonNullable<typeof r> => r !== null);
 
         // Count the students enrolled in this course
         const studentCount = await prisma.enrollment.count({ where: { courseId } });
@@ -168,7 +164,7 @@ export class CourseReducer {
             isEnrolled: !!enrollment,
             studentCount,
             sections: sectionsWithSignedUrls,
-            resources: validResources
+            resources
         });
     }
 
