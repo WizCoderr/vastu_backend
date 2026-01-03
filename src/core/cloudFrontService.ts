@@ -79,7 +79,8 @@ export const getCloudFrontPublicUrl = (key: string): string => {
     const domain = CLOUDFRONT_DOMAIN.replace(/\/$/, "");
 
     // Encode the key by splitting path segments
-    const encodedKey = key.split('/').map(segment => encodeURIComponent(segment)).join('/');
+    // decodeURIComponent first to ensure we don't double-encode unique characters if they are already encoded
+    const encodedKey = key.split('/').map(segment => encodeURIComponent(decodeURIComponent(segment))).join('/');
 
     return `https://${domain}/${encodedKey}`;
 };
