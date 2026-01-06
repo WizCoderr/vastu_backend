@@ -1,6 +1,6 @@
-# Udemy-like Backend
+# Vastu Backend
 
-A production-ready e-learning platform backend built with **Bun**, **Express**, **TypeScript**, **Prisma**, and **PostgreSQL**.
+A production-ready e-learning platform backend built with **Bun**, **Express**, **TypeScript**, **Prisma**, and **mongodb**.
 
 ## Architecture
 
