@@ -8,10 +8,22 @@ export class CourseReducer {
             include: {
                 sections: {
                     include: {
-                        lectures: true
+                        lectures: true,
+                        liveClasses: {
+                            where: { status: { in: ['SCHEDULED', 'LIVE'] } },
+                            orderBy: { scheduledAt: 'asc' }
+                        }
                     }
                 },
-                courseResources: true
+                courseResources: true,
+                liveClasses: {
+                    where: {
+                        status: { in: ['SCHEDULED', 'LIVE'] },
+                        scheduledAt: { gte: new Date() }
+                    },
+                    orderBy: { scheduledAt: 'asc' },
+                    take: 5
+                }
             }
         });
         const { getPresignedReadUrl, getDirectS3Url } = await import('../core/s3Service');
@@ -31,7 +43,17 @@ export class CourseReducer {
                     title: l.title,
                     videoUrl: l.s3Key ? await getPresignedReadUrl(l.s3Key, l.s3Bucket || undefined).catch(() => l.videoUrl) : l.videoUrl,
                     videoProvider: l.videoProvider
-                })))
+                }))),
+                liveClasses: s.liveClasses?.map(lc => ({
+                    id: lc.id,
+                    title: lc.title,
+                    description: lc.description,
+                    scheduledAt: lc.scheduledAt,
+                    durationMinutes: lc.durationMinutes,
+                    status: lc.status,
+                    meetingUrl: lc.meetingUrl,
+                    sectionId: lc.sectionId
+                }))
             }))),
             resources: await Promise.all(c.courseResources
                 .filter(r => r.type === 'FREE')
@@ -41,7 +63,16 @@ export class CourseReducer {
                     type: r.type,
                     url: r.s3Key ? await getPresignedReadUrl(r.s3Key, r.s3Bucket || undefined).catch(() => '') : ''
                 }))
-            )
+            ),
+            liveClasses: c.liveClasses ? c.liveClasses.map(lc => ({
+                id: lc.id,
+                title: lc.title,
+                description: lc.description,
+                scheduledAt: lc.scheduledAt,
+                durationMinutes: lc.durationMinutes,
+                status: lc.status,
+                meetingUrl: lc.meetingUrl
+            })) : undefined
         })));
 
         return Result.ok(dtos);
@@ -55,10 +86,22 @@ export class CourseReducer {
                     include: {
                         sections: {
                             include: {
-                                lectures: true
+                                lectures: true,
+                                liveClasses: {
+                                    where: { status: { in: ['SCHEDULED', 'LIVE'] } },
+                                    orderBy: { scheduledAt: 'asc' }
+                                }
                             }
                         },
-                        courseResources: true
+                        courseResources: true,
+                        liveClasses: {
+                            where: {
+                                status: { in: ['SCHEDULED', 'LIVE'] },
+                                scheduledAt: { gte: new Date() }
+                            },
+                            orderBy: { scheduledAt: 'asc' },
+                            take: 5
+                        }
                     }
                 }
             },
@@ -83,7 +126,17 @@ export class CourseReducer {
                     title: l.title,
                     videoUrl: l.s3Key ? await getPresignedReadUrl(l.s3Key, l.s3Bucket || undefined).catch(() => l.videoUrl) : l.videoUrl,
                     videoProvider: l.videoProvider
-                })))
+                }))),
+                liveClasses: s.liveClasses?.map(lc => ({
+                    id: lc.id,
+                    title: lc.title,
+                    description: lc.description,
+                    scheduledAt: lc.scheduledAt,
+                    durationMinutes: lc.durationMinutes,
+                    status: lc.status,
+                    meetingUrl: lc.meetingUrl,
+                    sectionId: lc.sectionId
+                }))
             }))),
             resources: await Promise.all(c.courseResources
                 .map(async (r) => ({
@@ -92,7 +145,16 @@ export class CourseReducer {
                     type: r.type,
                     url: r.s3Key ? await getPresignedReadUrl(r.s3Key, r.s3Bucket || undefined).catch(() => '') : ''
                 }))
-            )
+            ),
+            liveClasses: c.liveClasses ? c.liveClasses.map(lc => ({
+                id: lc.id,
+                title: lc.title,
+                description: lc.description,
+                scheduledAt: lc.scheduledAt,
+                durationMinutes: lc.durationMinutes,
+                status: lc.status,
+                meetingUrl: lc.meetingUrl
+            })) : undefined
         })));
 
         return Result.ok(dtos);
@@ -104,7 +166,11 @@ export class CourseReducer {
             include: {
                 sections: {
                     include: {
-                        lectures: true
+                        lectures: true,
+                        liveClasses: {
+                            where: { status: { in: ['SCHEDULED', 'LIVE'] } },
+                            orderBy: { scheduledAt: 'asc' }
+                        }
                     }
                 },
                 courseResources: true
@@ -138,7 +204,17 @@ export class CourseReducer {
                 title: l.title,
                 videoUrl: l.s3Key ? await getPresignedReadUrl(l.s3Key, l.s3Bucket || undefined).catch(() => l.videoUrl) : l.videoUrl,
                 videoProvider: l.videoProvider
-            })))
+            }))),
+            liveClasses: s.liveClasses?.map(lc => ({
+                id: lc.id,
+                title: lc.title,
+                description: lc.description,
+                scheduledAt: lc.scheduledAt,
+                durationMinutes: lc.durationMinutes,
+                status: lc.status,
+                meetingUrl: lc.meetingUrl,
+                sectionId: lc.sectionId
+            }))
         })));
 
         const resources = await Promise.all(course.courseResources.map(async (r) => {
@@ -155,7 +231,19 @@ export class CourseReducer {
         }));
 
         // Count the students enrolled in this course
+        // Count the students enrolled in this course
         const studentCount = await prisma.enrollment.count({ where: { courseId } });
+
+        // Fetch live classes for ALL users (Public & Authenticated)
+        const liveClasses = await prisma.liveClass.findMany({
+            where: {
+                courseId: courseId,
+                status: { in: ['SCHEDULED', 'LIVE'] }, // Only future/live classes
+                scheduledAt: { gte: new Date() } // Optional: ensure they are in the future
+            },
+            orderBy: { scheduledAt: 'asc' },
+            take: 5
+        });
 
         return Result.ok({
             ...course,
@@ -164,7 +252,8 @@ export class CourseReducer {
             isEnrolled: !!enrollment,
             studentCount,
             sections: sectionsWithSignedUrls,
-            resources
+            resources,
+            liveClasses: liveClasses.length > 0 ? liveClasses : undefined
         });
     }
 

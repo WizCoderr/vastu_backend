@@ -2,10 +2,17 @@ import cluster from 'node:cluster';
 import app from './app';
 import { config } from './config';
 import logger from './utils/logger';
+import { startNotificationWorker } from './notification/notification.worker';
 
 const startServer = () => {
     app.listen(config.port, () => {
         logger.info(`Server started on port ${config.port}`);
+
+        // Start notification worker only on primary process or single process mode
+        // This prevents duplicate notifications in cluster mode
+        if (!cluster.isWorker || process.env.ENABLE_NOTIFICATION_WORKER === 'true') {
+            startNotificationWorker();
+        }
     });
 };
 
@@ -15,6 +22,9 @@ const forceCluster = process.env.FORCE_CLUSTER === 'true';
 if ((numCPUs > 1 || forceCluster) && cluster.isPrimary) {
     logger.info(`Master ${process.pid} is running`);
     logger.info(`Forking ${numCPUs} workers...`);
+
+    // Start notification worker on primary process in cluster mode
+    startNotificationWorker();
 
     for (let i = 0; i < numCPUs; i++) {
         cluster.fork();

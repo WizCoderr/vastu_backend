@@ -22,9 +22,11 @@ model User {
   role      String   @default("student") // student, admin
   createdAt DateTime @default(now())
 
-  enrollments Enrollment[]
-  progress    Progress[]
-  payments    Payment[]
+  enrollments      Enrollment[]
+  progress         Progress[]
+  payments         Payment[]
+  deviceTokens     DeviceToken[]
+  notificationLogs NotificationLog[]
 
   enrolledCourseIds String[] @default([])
 }
@@ -47,6 +49,7 @@ model Course {
   enrollments     Enrollment[]
   payments        Payment[]
   courseResources CourseResource[]
+  liveClasses     LiveClass[]
 }
 
 enum ResourceType {
@@ -72,6 +75,7 @@ model Section {
   courseId String    @db.ObjectId
   course   Course    @relation(fields: [courseId], references: [id])
   lectures Lecture[]
+  liveClasses LiveClass[]
 }
 
 model Lecture {
@@ -133,4 +137,77 @@ model Payment {
 
   user   User   @relation(fields: [userId], references: [id])
   course Course @relation(fields: [courseId], references: [id])
+}
+
+// ============================================================================
+// LIVE CLASSES FEATURE
+// ============================================================================
+
+enum LiveClassStatus {
+  SCHEDULED
+  LIVE
+  COMPLETED
+}
+
+model LiveClass {
+  id                  String          @id @default(auto()) @map("_id") @db.ObjectId
+  courseId            String          @db.ObjectId
+  batchId             String?         // Optional batch identifier for grouped classes
+  title               String
+  description         String?
+  scheduledAt         DateTime        // Timezone-aware scheduled start time
+  durationMinutes     Int             @default(60)
+  meetingUrl          String          // Zoom/Google Meet/custom meeting link
+  recordingUrl        String?         // Uploaded after class completion
+  status              LiveClassStatus @default(SCHEDULED)
+  notifySent          Boolean         @default(false) // 30-min reminder sent
+  recordingNotifySent Boolean         @default(false) // Recording available notification
+  createdAt           DateTime        @default(now())
+  updatedAt           DateTime        @updatedAt
+
+  course Course @relation(fields: [courseId], references: [id])
+  sectionId String? @db.ObjectId
+  section Section? @relation(fields: [sectionId], references: [id])
+
+  @@index([courseId])
+  @@index([sectionId])
+  @@index([scheduledAt])
+  @@index([status])
+  @@index([notifySent, scheduledAt]) // For cron job queries
+}
+
+// Device tokens for push notifications (FCM)
+model DeviceToken {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  userId    String   @db.ObjectId
+  token     String   // FCM device token
+  platform  String   @default("android") // android, ios, web
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@unique([userId, token]) // Prevent duplicate tokens per user
+  @@index([userId])
+}
+
+// Notification log for tracking sent notifications
+model NotificationLog {
+  id          String    @id @default(auto()) @map("_id") @db.ObjectId
+  userId      String    @db.ObjectId
+  type        String    // LIVE_CLASS, RECORDING_AVAILABLE
+  title       String
+  body        String
+  data        String?   // JSON payload
+  liveClassId String?   @db.ObjectId
+  sent        Boolean   @default(false)
+  sentAt      DateTime?
+  error       String?
+  createdAt   DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@index([type])
+  @@index([liveClassId])
 }

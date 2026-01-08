@@ -63,9 +63,17 @@ export class InstructorIntent {
                 orderBy: { id: 'desc' },
                 include: {
                     sections: {
-                        include: { lectures: true }
+                        include: {
+                            lectures: true,
+                            liveClasses: {
+                                orderBy: { scheduledAt: 'asc' }
+                            }
+                        }
                     },
-                    courseResources: true
+                    courseResources: true,
+                    liveClasses: {
+                        orderBy: { scheduledAt: 'asc' }
+                    }
                 }
             });
             const { getPresignedReadUrl, getDirectS3Url } = await import('../core/s3Service');
@@ -101,12 +109,12 @@ export class InstructorIntent {
                             }
                             return { ...lecture, videoUrl };
                         }));
-                        return { ...section, lectures };
+                        return { ...section, lectures, liveClasses: section.liveClasses };
                     }));
 
                     // Count students for instructor/admin dashboard
                     const studentCount = await prisma.enrollment.count({ where: { courseId: course.id } });
-                    return { ...course, thumbnail: thumbUrl, sections, courseResources, studentCount };
+                    return { ...course, thumbnail: thumbUrl, sections, courseResources, studentCount, liveClasses: course.liveClasses };
                 })
             );
 
@@ -731,9 +739,17 @@ export class InstructorIntent {
                 where: { id: courseId },
                 include: {
                     sections: {
-                        include: { lectures: true }
+                        include: {
+                            lectures: true,
+                            liveClasses: {
+                                orderBy: { scheduledAt: 'asc' }
+                            }
+                        }
                     },
-                    courseResources: true
+                    courseResources: true,
+                    liveClasses: {
+                        orderBy: { scheduledAt: 'asc' }
+                    }
                 }
             });
 
@@ -781,7 +797,7 @@ export class InstructorIntent {
                     }
                     return { ...lecture, videoUrl };
                 }));
-                return { ...section, lectures };
+                return { ...section, lectures, liveClasses: section.liveClasses };
             }));
 
             res.json({
@@ -790,7 +806,8 @@ export class InstructorIntent {
                     ...course,
                     thumbnail,
                     courseResources: resources,
-                    sections
+                    sections,
+                    liveClasses: course.liveClasses
                 }
             });
 
