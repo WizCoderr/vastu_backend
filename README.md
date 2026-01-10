@@ -20,7 +20,6 @@ This project strictly follows the **MVI (Model-View-Intent)** architecture:
 - **Payments**: Stripe
 
 ## Features
-
 - **Authentication**: Student registration and login.
 - **Courses**: View course catalog and details.
 - **Curriculum**: Access sections and lectures (protected by enrollment).
