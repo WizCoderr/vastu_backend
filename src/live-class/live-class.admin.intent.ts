@@ -164,7 +164,7 @@ export class LiveClassAdminIntent {
 
     /**
      * POST /admin/live-classes/:id/recording
-     * Upload recording URL for completed class
+     * Upload recording URL for completed class (Creates a Lecture)
      */
     static async uploadRecording(req: Request, res: Response) {
         const paramValidation = liveClassIdParamSchema.safeParse(req.params);
@@ -183,10 +183,10 @@ export class LiveClassAdminIntent {
         }
 
         const { id } = paramValidation.data;
-        const { recordingUrl } = validation.data;
-        logger.info("LiveClassAdminIntent.uploadRecording: Uploading recording", { id });
+        const data = validation.data;
+        logger.info("LiveClassAdminIntent.uploadRecording: Registering recording as lecture", { id });
 
-        const result = await LiveClassReducer.uploadRecording(id, recordingUrl);
+        const result = await LiveClassReducer.registerRecordingAsLecture(id, data);
 
         if (result.success) {
             res.status(200).json(result.data);

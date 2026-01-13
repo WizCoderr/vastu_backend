@@ -30,7 +30,11 @@ export const updateLiveClassSchema = z.object({
 export type UpdateLiveClassDto = z.infer<typeof updateLiveClassSchema>;
 
 export const uploadRecordingSchema = z.object({
-    recordingUrl: z.string().url("Invalid recording URL"),
+    sectionId: z.string().min(1, "Section ID is required"),
+    s3Key: z.string().min(1, "S3 Key is required"),
+    s3Bucket: z.string().optional(),
+    title: z.string().optional(), // Optional override
+    recordingUrl: z.string().url("Invalid recording URL").optional(), // Legacy support or optional
 });
 
 export type UploadRecordingDto = z.infer<typeof uploadRecordingSchema>;
