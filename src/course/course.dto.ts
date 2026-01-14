@@ -58,7 +58,7 @@ export interface CourseDto {
 }
 
 export const progressUpdateSchema = z.object({
-    lectureId: z.string().uuid(),
+    lectureId: z.string(),
     completed: z.boolean(),
 });
 
