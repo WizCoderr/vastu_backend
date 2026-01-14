@@ -368,6 +368,23 @@ export class InstructorIntent {
             // 3. Delete Enrollments
             await prisma.enrollment.deleteMany({ where: { courseId } });
 
+            // Remove courseId from User.enrolledCourseIds array
+            try {
+                await prisma.$runCommandRaw({
+                    update: "User",
+                    updates: [
+                        {
+                            q: { enrolledCourseIds: courseId },
+                            u: { $pull: { enrolledCourseIds: courseId } },
+                            multi: true
+                        }
+                    ]
+                });
+            } catch (err) {
+                logger.error('Failed to cleanup User.enrolledCourseIds', { error: err });
+                // Non-blocking, continue with course deletion
+            }
+
             // 4. Delete Course Resources (DB + S3)
             const { deleteObject } = await import('../core/s3Service');
             for (const resource of course.courseResources) {
