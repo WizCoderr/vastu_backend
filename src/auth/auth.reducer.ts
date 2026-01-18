@@ -20,6 +20,7 @@ export class AuthReducer {
                 password: hashedPassword,
                 name: dto.name,
                 role: dto.role || 'student',
+                phoneNumber: dto.phoneNumber,
             },
         });
 
@@ -32,6 +33,7 @@ export class AuthReducer {
                 email: user.email,
                 name: user.name,
                 role: user.role,
+                phoneNumber: user.phoneNumber,
                 enrolledCourseIds: user.enrolledCourseIds
             },
         });
@@ -59,6 +61,7 @@ export class AuthReducer {
                 email: user.email,
                 name: user.name,
                 role: user.role,
+                phoneNumber: user.phoneNumber,
                 enrolledCourseIds: user.enrolledCourseIds
             },
         });
@@ -73,8 +76,31 @@ export class AuthReducer {
             email: user.email,
             name: user.name,
             role: user.role,
+            phoneNumber: user.phoneNumber,
             enrolledCourseIds: user.enrolledCourseIds
         });
+    }
+
+    static async updateProfile(userId: string, data: { name?: string, phoneNumber?: string }): Promise<Result<UserDto>> {
+        try {
+            const user = await prisma.user.update({
+                where: { id: userId },
+                data: {
+                    ...data
+                }
+            });
+
+            return Result.ok({
+                id: user.id,
+                email: user.email,
+                name: user.name,
+                role: user.role,
+                phoneNumber: user.phoneNumber,
+                enrolledCourseIds: user.enrolledCourseIds
+            });
+        } catch (error) {
+            return Result.fail('Failed to update profile');
+        }
     }
 }
 

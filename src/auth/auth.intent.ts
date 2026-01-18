@@ -1,5 +1,5 @@
 import { Request, Response } from 'express';
-import { registerSchema, loginSchema } from './auth.dto';
+import { registerSchema, loginSchema, updateProfileSchema } from './auth.dto';
 import { AuthReducer } from "./auth.reducer";
 import { Result } from '../core/result';
 import logger from '../utils/logger';
@@ -72,6 +72,24 @@ export class AuthIntent {
             return res.json(result);
         } else {
             return res.status(404).json(result);
+        }
+    }
+    static async updateProfile(req: AuthRequest, res: Response) {
+        if (!req.user) return res.status(401).json(Result.fail('Unauthorized'));
+
+        // Validate body
+        const validation = updateProfileSchema.safeParse(req.body);
+        if (!validation.success) {
+            return res.status(400).json(Result.fail(validation.error));
+        }
+
+        const result = await AuthReducer.updateProfile(req.user.userId, validation.data);
+
+        if (result.success) {
+            logger.info('AuthIntent.updateProfile: Profile updated', { userId: req.user.userId });
+            return res.json(result);
+        } else {
+            return res.status(400).json(result);
         }
     }
 }

@@ -85,9 +85,15 @@ export class CourseIntent {
                     url: signedUrl,
                     provider: 's3'
                 });
+            } else if (lecture.videoUrl) {
+                // Return external URL directly
+                return res.json({
+                    success: true,
+                    url: lecture.videoUrl,
+                    provider: lecture.videoProvider || 'external'
+                });
             } else {
-                // Legacy Fallback (should not be reached for new content)
-                return res.status(422).json(Result.fail('Video provider not supported or missing S3 key'));
+                return res.status(422).json(Result.fail('Video provider not supported or missing video URL'));
             }
 
         } catch (error: any) {

@@ -219,7 +219,10 @@ export class InstructorIntent {
 
             // 1. Determine S3 destination
             const fileName = path.basename(inputPath);
-            const folder = fileType === 'video' ? 'videos' : (fileType === 'image' ? 'images' : 'pdfs');
+            if (fileType === 'video') {
+                return res.status(400).json({ success: false, error: 'Video upload is no longer supported. Please provide a video URL instead.' });
+            }
+            const folder = fileType === 'image' ? 'images' : 'pdfs';
             const s3Key = `vastu-courses/${folder}/${Date.now()}-${req.file.originalname}`;
             const bucketName = process.env.AWS_BUCKET_NAME!;
 
@@ -229,7 +232,7 @@ export class InstructorIntent {
                 Bucket: bucketName,
                 Key: s3Key,
                 Body: fileBuffer,
-                ContentType: req.file.mimetype || (fileType === 'video' ? 'video/mp4' : (fileType === 'image' ? 'image/jpeg' : 'application/pdf'))
+                ContentType: req.file.mimetype || (fileType === 'image' ? 'image/jpeg' : 'application/pdf')
             }));
 
             logger.info(`Uploaded to S3: ${s3Key}`);
@@ -268,32 +271,41 @@ export class InstructorIntent {
     }
 
 
-    // Register a video stored in S3
-    static async registerS3Lecture(req: Request, res: Response) {
+    // Register a lecture with a video URL
+    static async registerLecture(req: Request, res: Response) {
         try {
-            const { s3Key, title, s3Bucket } = req.body;
+            const { videoUrl, title, s3Key, s3Bucket, videoProvider } = req.body;
             const { courseId, sectionId } = req.params;
-            if (!s3Key || !title) {
-                res.status(400).json({ error: 'Missing s3Key or title' });
+
+            if (!title) {
+                res.status(400).json({ error: 'Missing title' });
                 return;
             }
 
-            // Just register the S3 asset directly
+            // If videoUrl is provided, us it. If s3Key is provided, use it (legacy support)
+            let finalVideoUrl = videoUrl;
+            let finalProvider = videoProvider || 'external'; // default to external url
+
+
+
+            if (!finalVideoUrl) {
+                return res.status(400).json({ error: 'Missing videoUrl' });
+            }
+
+            // Just register the lecture
             const lecture = await prisma.lecture.create({
                 data: {
                     title,
                     sectionId,
-                    videoUrl: `s3://${s3Bucket || process.env.AWS_BUCKET_NAME}/${s3Key}`,
-                    videoProvider: 's3',
-                    s3Key,
-                    s3Bucket: s3Bucket || process.env.AWS_BUCKET_NAME,
-                    muxReady: true, // Legacy field, keeping true to avoid logical breaks if checked elsewhere
+                    videoUrl: finalVideoUrl,
+                    videoProvider: finalProvider,
+                    muxReady: true,
                 },
             });
             res.json({ success: true, lecture });
         } catch (error) {
-            console.error('Register S3 Video Error:', error);
-            res.status(500).json({ error: 'Failed to register video' });
+            console.error('Register Lecture Error:', error);
+            res.status(500).json({ error: 'Failed to register lecture' });
         }
     }
 
@@ -632,11 +644,19 @@ export class InstructorIntent {
                                     lecPayload.s3Key = lecData.s3Key;
                                     if (lecData.s3Key) {
                                         lecPayload.videoUrl = `s3://${bucket}/${lecData.s3Key}`;
+                                        lecPayload.videoProvider = 's3';
                                     } else {
-                                        lecPayload.videoUrl = ''; // Clear if s3Key explicitly null
+                                        // S3 Key explicitly removed
+                                        if (lecData.videoUrl !== undefined) {
+                                            lecPayload.videoUrl = lecData.videoUrl;
+                                            lecPayload.videoProvider = lecData.videoProvider || 'external';
+                                        } else {
+                                            lecPayload.videoUrl = ''; // Clear if s3Key null and no replacement url
+                                        }
                                     }
                                 } else if (lecData.videoUrl !== undefined) {
                                     lecPayload.videoUrl = lecData.videoUrl;
+                                    lecPayload.videoProvider = lecData.videoProvider || 'external';
                                 }
 
                                 if (lecData.id) {

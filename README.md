@@ -73,15 +73,25 @@ This project strictly follows the **MVI (Model-View-Intent)** architecture:
 - `POST /auth/register` - Create new student
 - `POST /auth/login` - Get access token
 
+### Admin (Requires Bearer Token)
+- `POST /api/admin/enroll` - Manually enroll student
+- `GET /api/admin/videos` - Get video library stats
+- `GET /api/admin/storage` - Manage S3 files
+- `GET /api/admin/payments` - View financial stats
+- `/api/admin/live-classes/*` - Manage live sessions
+
 ### Student (Requires Bearer Token)
 - `GET /api/student/courses` - List all courses
-- `GET /api/student/courses/:id` - Get course details
-- `GET /api/student/courses/:id/curriculum` - Get sections/lectures (Enrolled only)
-- `POST /api/student/progress/update` - Mark lecture as complete
+- `GET /api/student/enrolled-courses` - List my courses
+- `GET /api/student/courses/:id/curriculum` - Access content
+- `GET /api/student/lectures/:lectureId/stream-url` - Watch video
+- `/api/student/live-classes/*` - Join/View live sessions
 
 ### Payments
-- `POST /api/payments/create-intent` - Initialize payment for a course
+- `POST /api/payments/create-intent` - Initialize payment
 - `POST /api/payments/webhook` - Stripe webhook handler
+
+> **Note**: For full API documentation, see [API_ROUTES.md](./API_ROUTES.md).
 
 ## Structure
 

@@ -20,6 +20,7 @@ model User {
   password  String
   name      String?
   role      String   @default("student") // student, admin
+  phoneNumber String
   createdAt DateTime @default(now())
 
   enrollments      Enrollment[]

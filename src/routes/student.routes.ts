@@ -19,6 +19,7 @@ router.get('/enrolled-courses', CourseIntent.listEnrolledCourses as RequestHandl
 router.get('/courses/:id', CourseIntent.getCourse as RequestHandler);
 router.get('/courses/:id/curriculum', CourseIntent.getCurriculum as RequestHandler);
 router.post('/progress/update', ProgressIntent.updateProgress as RequestHandler);
+router.put('/profile', AuthIntent.updateProfile as RequestHandler);
 router.get('/lectures/:lectureId/stream-url', CourseIntent.getLectureStreamUrl as RequestHandler);
 
 // =============================================================================
