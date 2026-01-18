@@ -46,3 +46,4 @@ certs
 brain
 scripts
 .claude
+*.postman_collection.json
