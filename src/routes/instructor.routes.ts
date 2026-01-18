@@ -26,6 +26,8 @@ router.get('/courses/:courseId/students', requireAdmin, InstructorIntent.getCour
 
 // Create a section in a course
 router.post('/courses/:courseId/sections', requireAdmin, InstructorIntent.createSection as RequestHandler);
+// Get all sections in a course
+router.get('/courses/:courseId/sections', requireAdmin, InstructorIntent.getAllSections as RequestHandler);
 
 
 

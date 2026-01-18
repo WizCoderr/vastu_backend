@@ -145,6 +145,23 @@ export class InstructorIntent {
         }
     }
 
+    // List all sections for a course
+    static async getAllSections(req: Request, res: Response) {
+        const { courseId } = req.params;
+        logger.info('InstructorIntent.getAllSections: Fetching sections', { courseId });
+        try {
+            const sections = await prisma.section.findMany({
+                where: { courseId },
+                include: { lectures: true }, // Include lectures as they are usually needed
+                orderBy: { id: 'asc' } // Or by some order index if it exists, otherwise ID
+            });
+            res.json({ success: true, data: sections });
+        } catch (error) {
+            logger.error('InstructorIntent.getAllSections: Failed to fetch sections', { error, courseId });
+            res.status(500).json({ success: false, error: 'Failed to fetch sections' });
+        }
+    }
+
     // Create a section within a course
     static async createSection(req: Request, res: Response) {
         const { courseId } = req.params;
@@ -362,6 +379,23 @@ export class InstructorIntent {
 
             // 3. Delete Enrollments
             await prisma.enrollment.deleteMany({ where: { courseId } });
+
+            // Remove courseId from User.enrolledCourseIds array
+            try {
+                await prisma.$runCommandRaw({
+                    update: "User",
+                    updates: [
+                        {
+                            q: { enrolledCourseIds: courseId },
+                            u: { $pull: { enrolledCourseIds: courseId } },
+                            multi: true
+                        }
+                    ]
+                });
+            } catch (err) {
+                logger.error('Failed to cleanup User.enrolledCourseIds', { error: err });
+                // Non-blocking, continue with course deletion
+            }
 
             // 4. Delete Course Resources (DB + S3)
             const { deleteObject } = await import('../core/s3Service');
