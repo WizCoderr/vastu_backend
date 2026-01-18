@@ -47,6 +47,8 @@ router.post('/resources/register', requireAdmin, InstructorIntent.registerResour
 
 // Register Video
 router.post('/courses/:courseId/sections/:sectionId/lectures/register-video', requireAdmin, InstructorIntent.registerLecture as RequestHandler);
+// Create Lecture (alias for register-video)
+router.post('/courses/:courseId/sections/:sectionId/lectures', requireAdmin, InstructorIntent.registerLecture as RequestHandler);
 
 // Admin logout (invalidate token)
 router.post('/logout', requireAdmin, AuthIntent.logout as RequestHandler);

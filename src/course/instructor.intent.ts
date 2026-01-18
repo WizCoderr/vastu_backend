@@ -291,7 +291,7 @@ export class InstructorIntent {
     // Register a lecture with a video URL
     static async registerLecture(req: Request, res: Response) {
         try {
-            const { videoUrl, title, s3Key, s3Bucket, videoProvider } = req.body;
+            const { videoUrl, url, title } = req.body;
             const { courseId, sectionId } = req.params;
 
             if (!title) {
@@ -300,8 +300,8 @@ export class InstructorIntent {
             }
 
             // If videoUrl is provided, us it. If s3Key is provided, use it (legacy support)
-            let finalVideoUrl = videoUrl;
-            let finalProvider = videoProvider || 'external'; // default to external url
+            // 'url' is accepted as an alias for 'videoUrl' to match some frontend clients
+            let finalVideoUrl = videoUrl || url;
 
 
 
@@ -315,7 +315,7 @@ export class InstructorIntent {
                     title,
                     sectionId,
                     videoUrl: finalVideoUrl,
-                    videoProvider: finalProvider,
+                    videoProvider: 'youtube',
                     muxReady: true,
                 },
             });
