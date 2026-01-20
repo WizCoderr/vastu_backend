@@ -55,6 +55,7 @@ export class AdminIntent {
                     email: true,
                     name: true,
                     role: true,
+                    phoneNumber: true,
                     createdAt: true,
                     enrollments: {
                         select: {
