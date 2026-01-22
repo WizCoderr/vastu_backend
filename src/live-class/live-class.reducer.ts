@@ -130,7 +130,7 @@ export class LiveClassReducer {
      */
     static async registerRecordingAsLecture(
         id: string,
-        data: { sectionId: string; s3Key: string; s3Bucket?: string; recordingUrl?: string; title?: string }
+        data: { sectionId: string; videoUrl: string; title?: string }
     ): Promise<Result<any>> {
         try {
             const liveClass = await LiveClassRepository.findById(id);
@@ -139,32 +139,15 @@ export class LiveClassReducer {
             }
 
             const lectureTitle = data.title || liveClass.title;
-            const bucket = data.s3Bucket || process.env.AWS_BUCKET_NAME;
-            const videoUrl = data.recordingUrl || `s3://${bucket}/${data.s3Key}`;
-
-            // Create Lecture
+            // Create Lecture with External URL
             const lecture = await prisma.lecture.create({
                 data: {
                     title: lectureTitle,
                     sectionId: data.sectionId,
-                    videoUrl: videoUrl,
-                    videoProvider: "s3",
-                    s3Key: data.s3Key,
-                    s3Bucket: bucket,
-                    muxReady: true,
+                    videoUrl: data.videoUrl,
+                    videoProvider: "external",
                 },
             });
-
-            // Optionally mark LiveClass as completed or link it?
-            // User request didn't specify updating LiveClass, but usually we might want to.
-            // For now, adhering strictly to "map to registerS3Lecture" logic which just creates a lecture.
-            // But we should probably also update the live class to say it has a recording if we want to keep that state?
-            // The user said "map router.post... to ... registerS3Lecture", implying the new behavior is creating a lecture.
-            // The old `uploadRecording` updated `recordingUrl` on LiveClass.
-            // Let's safe-guard by ALSO updating the LiveClass recordingUrl for backward compatibility if it exists on the schema,
-            // or just leave it. The User specifically asked to MAP to registerS3Lecture logic.
-            // `registerS3Lecture` only creates a lecture.
-            // I will strictly implement "Create Lecture using Live Class Title".
 
             logger.info("LiveClass recording registered as Lecture", { liveClassId: id, lectureId: lecture.id });
 
