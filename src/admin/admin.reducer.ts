@@ -108,8 +108,6 @@ export class AdminReducer {
                 orderBy: { createdAt: 'desc' }
             });
 
-            const enrollmentsCount = await prisma.enrollment.count();
-
             // Calculate Stats
             const totalVolume = payments
                 .filter(p => p.status === 'COMPLETED' || p.status === 'SUCCEEDED')
@@ -135,7 +133,6 @@ export class AdminReducer {
             return Result.ok({
                 stats: {
                     totalVolume: totalVolume.toFixed(2),
-                    activeSubscriptions: enrollmentsCount,
                     refundRate
                 },
                 transactions: recentTransactions

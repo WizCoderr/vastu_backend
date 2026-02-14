@@ -102,6 +102,7 @@ model Enrollment {
   id        String   @id @default(auto()) @map("_id") @db.ObjectId
   userId    String   @db.ObjectId
   courseId  String   @db.ObjectId
+  serialNumber String?
   createdAt DateTime @default(now())
 
   user   User   @relation(fields: [userId], references: [id])

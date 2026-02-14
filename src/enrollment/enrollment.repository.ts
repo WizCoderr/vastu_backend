@@ -14,10 +14,17 @@ export class EnrollmentRepository {
         const existing = await this.findEnrollment(userId, courseId);
         if (existing) return existing;
 
+        // Generate Serial Number: 001, 002, etc. based on course enrollment count
+        const count = await prisma.enrollment.count({
+            where: { courseId }
+        });
+        const serialNumber = (count + 1).toString().padStart(3, '0');
+
         const enrollment = await prisma.enrollment.create({
             data: {
                 userId,
                 courseId,
+                serialNumber,
             },
         });
 
