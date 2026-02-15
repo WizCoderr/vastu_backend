@@ -52,6 +52,7 @@ export class PaymentReducer {
                     razorpayPaymentId: paymentId,
                     razorpaySignature: signature
                 }
+                
             });
 
             await EnrollmentRepository.createEnrollment(userId, courseId);
