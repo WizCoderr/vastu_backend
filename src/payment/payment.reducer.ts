@@ -65,6 +65,38 @@ export class PaymentReducer {
         }
     }
 
+    static async createFreeEnrollment(userId: string, courseId: string) {
+        try {
+            const course = await prisma.course.findUnique({ where: { id: courseId } });
+            if (!course) return Result.fail("Course not found");
+
+            if (course.price !== "0" && course.price !== "0.00" && parseInt(course.price) !== 0) {
+                return Result.fail("Course is not free");
+            }
+
+            const existing = await EnrollmentRepository.findEnrollment(userId, courseId);
+            if (existing) return Result.fail("Already enrolled");
+
+            const payment = await prisma.payment.create({
+                data: {
+                    userId,
+                    courseId,
+                    amount: "0",
+                    status: "COMPLETED",
+                    providerId: "FREE_ENROLLMENT"
+                }
+            });
+
+            await EnrollmentRepository.createEnrollment(userId, courseId);
+
+            return Result.ok(payment.id);
+
+        } catch (error: any) {
+            if (error.code === "P2002") return Result.ok("Already enrolled");
+            return Result.fail(`Free enrollment failed: ${error.message}`);
+        }
+    }
+
     static async getAllPayments() {
         const payments = await prisma.payment.findMany({
             select: {

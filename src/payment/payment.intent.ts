@@ -45,6 +45,24 @@ export class PaymentIntent {
         }
     }
 
+    static async createFreeEnrollment(req: AuthRequest, res: Response) {
+        if (!req.user) return res.status(401).json({ error: "Unauthorized" });
+
+        try {
+            const { courseId } = req.body;
+            if (!courseId) return res.status(400).json({ error: "courseId is required" });
+
+            const result = await PaymentReducer.createFreeEnrollment(req.user.userId, courseId);
+
+            return result.success
+                ? res.json({ success: true, paymentId: result.data })
+                : res.status(400).json({ error: result.error });
+
+        } catch {
+            res.status(500).json({ error: "Free enrollment failed" });
+        }
+    }
+
     static async getAllPayments(req: AuthRequest, res: Response) {
         try {
             const result = await PaymentReducer.getAllPayments();

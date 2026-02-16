@@ -6,6 +6,7 @@ const router = Router();
 
 router.post("/razorpay/order", requireAuth, PaymentIntent.createRazorpayOrder);
 router.post("/razorpay/verify", requireAuth, PaymentIntent.verifyRazorpayPayment);
+router.post("/free-enroll", requireAuth, PaymentIntent.createFreeEnrollment);
 
 // Admin-only: list all payments and total amount
 router.get("/admin/payments", requireAdmin, PaymentIntent.getAllPayments);
