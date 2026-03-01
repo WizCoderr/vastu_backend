@@ -5,6 +5,7 @@ import { ProgressIntent } from '../progress/progress.intent';
 import { Result } from '../core/result';
 import { AuthIntent } from '../auth/auth.intent';
 import { LiveClassStudentIntent } from '../live-class/live-class.student.intent';
+import { remidiesUserRouter } from '../remidies/remidies.routes';
 
 const router = Router();
 
@@ -44,5 +45,10 @@ router.post('/device-token', LiveClassStudentIntent.registerDeviceToken as Reque
 
 // Remove FCM device token (on logout)
 router.delete('/device-token', LiveClassStudentIntent.removeDeviceToken as RequestHandler);
+
+// =============================================================================
+// REMIDIES E-COMMERCE ROUTES
+// =============================================================================
+router.use('/remidies', remidiesUserRouter);
 
 export default router;

@@ -46,11 +46,13 @@ export class PaymentReducer {
                 data: {
                     userId,
                     courseId,
-                    amount: course.price,
+                    amount: parseFloat(course.price),
+                    type: "COURSE",
+                    provider: "RAZORPAY",
                     status: "COMPLETED",
-                    razorpayOrderId: orderId,
-                    razorpayPaymentId: paymentId,
-                    razorpaySignature: signature
+                    providerOrderId: orderId,
+                    providerPaymentId: paymentId,
+                    providerSignature: signature
                 }
                 
             });
@@ -81,9 +83,11 @@ export class PaymentReducer {
                 data: {
                     userId,
                     courseId,
-                    amount: "0",
+                    amount: 0,
+                    type: "COURSE",
+                    provider: "RAZORPAY",
                     status: "COMPLETED",
-                    providerId: "FREE_ENROLLMENT"
+                    providerOrderId: "FREE_ENROLLMENT"
                 }
             });
 

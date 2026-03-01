@@ -10,8 +10,8 @@ export class LiveClassRepository {
         return prisma.liveClass.create({
             data: {
                 courseId: data.courseId,
-                batchId: data.batchId,
                 sectionId: data.sectionId, // Added
+
                 title: data.title,
                 description: data.description,
                 scheduledAt: new Date(data.scheduledAt),
@@ -52,7 +52,6 @@ export class LiveClassRepository {
                 ...(data.scheduledAt && { scheduledAt: new Date(data.scheduledAt) }),
                 ...(data.durationMinutes && { durationMinutes: data.durationMinutes }),
                 ...(data.meetingUrl && { meetingUrl: data.meetingUrl }),
-                ...(data.batchId !== undefined && { batchId: data.batchId }),
                 ...(data.sectionId !== undefined && { sectionId: data.sectionId }), // Added
             },
             include: {

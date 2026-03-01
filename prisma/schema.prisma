@@ -1,9 +1,3 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
-// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
-// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
-
 generator client {
   provider = "prisma-client"
   output   = "../src/generated/prisma"
@@ -14,12 +8,16 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+//////////////////////////////////////////////////////
+// USER
+//////////////////////////////////////////////////////
+
 model User {
   id        String   @id @default(auto()) @map("_id") @db.ObjectId
   email     String   @unique
   password  String
   name      String?
-  role      String   @default("student") // student, admin
+  role      String   @default("student")
   phoneNumber String
   createdAt DateTime @default(now())
 
@@ -29,8 +27,16 @@ model User {
   deviceTokens     DeviceToken[]
   notificationLogs NotificationLog[]
 
+  // E-commerce
+  cart   Cart?
+  orders Order[]
+
   enrolledCourseIds String[] @default([])
 }
+
+//////////////////////////////////////////////////////
+// COURSE (LMS)
+//////////////////////////////////////////////////////
 
 model Course {
   id           String  @id @default(auto()) @map("_id") @db.ObjectId
@@ -39,12 +45,11 @@ model Course {
   thumbnail    String?
   price        String
   published    Boolean @default(false)
-  instructorId String // Placeholder for single instructor concept
+  instructorId String
 
-  // S3 Migration Fields
   s3Key     String?
   s3Bucket  String?
-  mediaType String? // "image"
+  mediaType String?
 
   sections        Section[]
   enrollments     Enrollment[]
@@ -67,15 +72,17 @@ model CourseResource {
   type      ResourceType
   createdAt DateTime     @default(now())
   updatedAt DateTime     @updatedAt
+
   course    Course       @relation(fields: [courseId], references: [id])
 }
 
 model Section {
-  id       String    @id @default(auto()) @map("_id") @db.ObjectId
-  title    String
-  courseId String    @db.ObjectId
-  course   Course    @relation(fields: [courseId], references: [id])
-  lectures Lecture[]
+  id        String    @id @default(auto()) @map("_id") @db.ObjectId
+  title     String
+  courseId  String    @db.ObjectId
+
+  course    Course    @relation(fields: [courseId], references: [id])
+  lectures  Lecture[]
   liveClasses LiveClass[]
 }
 
@@ -84,16 +91,15 @@ model Lecture {
   title     String
   videoUrl  String
   sectionId String     @db.ObjectId
+
   section   Section    @relation(fields: [sectionId], references: [id])
   progress  Progress[]
 
-  // Video Provider support (Cloudinary vs Mux vs S3)
-  videoProvider String? @default("cloudinary") // "cloudinary", "mux", "s3-mux"
-  muxAssetId    String? // Mux Asset ID
-  muxPlaybackId String? // Mux Playback ID (signed)
+  videoProvider String? @default("cloudinary")
+  muxAssetId    String?
+  muxPlaybackId String?
   muxReady      Boolean @default(false)
 
-  // S3 Migration Fields
   s3Key    String?
   s3Bucket String?
 }
@@ -108,7 +114,7 @@ model Enrollment {
   user   User   @relation(fields: [userId], references: [id])
   course Course @relation(fields: [courseId], references: [id])
 
-  @@unique([userId, courseId]) // Prevent double enrollment
+  @@unique([userId, courseId])
 }
 
 model Progress {
@@ -123,27 +129,64 @@ model Progress {
   @@unique([userId, lectureId])
 }
 
-model Payment {
-  id         String   @id @default(auto()) @map("_id") @db.ObjectId
-  userId     String   @db.ObjectId
-  courseId   String   @db.ObjectId
-  amount     String
-  status     String // COMPLETED, FAILED, PENDING
-  providerId String? // Stripe Intent ID (optional now)
-  createdAt  DateTime @default(now())
+//////////////////////////////////////////////////////
+// PAYMENT (UNIFIED LMS + ECOMMERCE)
+//////////////////////////////////////////////////////
 
-  // Razorpay Fields
-  razorpayOrderId   String?
-  razorpayPaymentId String?
-  razorpaySignature String?
-
-  user   User   @relation(fields: [userId], references: [id])
-  course Course @relation(fields: [courseId], references: [id])
+enum PaymentStatus {
+  PENDING
+  COMPLETED
+  FAILED
+  REFUNDED
 }
 
-// ============================================================================
-// LIVE CLASSES FEATURE
-// ============================================================================
+enum PaymentType {
+  COURSE
+  PRODUCT
+}
+
+enum PaymentProvider {
+  RAZORPAY
+}
+
+model Payment {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  userId    String   @db.ObjectId
+  user      User     @relation(fields: [userId], references: [id])
+
+  type      PaymentType
+
+  // COURSE PAYMENT (1:1)
+  courseId  String?  @unique @db.ObjectId
+  course    Course?  @relation(fields: [courseId], references: [id])
+
+  // ORDER PAYMENT (1:1)
+  orderId   String?  @unique @db.ObjectId
+  order     Order?   @relation(fields: [orderId], references: [id])
+
+  amount    Float
+  currency  String   @default("INR")
+
+  status    PaymentStatus @default(PENDING)
+  provider  PaymentProvider
+
+  providerOrderId   String?
+  providerPaymentId String?
+  providerSignature String?
+
+  failureReason String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+  @@index([status])
+  @@index([type])
+}
+
+//////////////////////////////////////////////////////
+// LIVE CLASSES
+//////////////////////////////////////////////////////
 
 enum LiveClassStatus {
   SCHEDULED
@@ -152,55 +195,55 @@ enum LiveClassStatus {
 }
 
 model LiveClass {
-  id                  String          @id @default(auto()) @map("_id") @db.ObjectId
-  courseId            String          @db.ObjectId
-  batchId             String?         // Optional batch identifier for grouped classes
-  title               String
-  description         String?
-  scheduledAt         DateTime        // Timezone-aware scheduled start time
-  durationMinutes     Int             @default(60)
-  meetingUrl          String          // Zoom/Google Meet/custom meeting link
-  recordingUrl        String?         // Uploaded after class completion
-  status              LiveClassStatus @default(SCHEDULED)
-  notifySent          Boolean         @default(false) // 30-min reminder sent
-  recordingNotifySent Boolean         @default(false) // Recording available notification
-  createdAt           DateTime        @default(now())
-  updatedAt           DateTime        @updatedAt
+  id          String          @id @default(auto()) @map("_id") @db.ObjectId
+  courseId    String          @db.ObjectId
+  sectionId   String?         @db.ObjectId
 
-  course Course @relation(fields: [courseId], references: [id])
-  sectionId String? @db.ObjectId
+  title       String
+  description String?
+  scheduledAt DateTime
+  durationMinutes Int @default(60)
+  meetingUrl  String
+  recordingUrl String?
+  status      LiveClassStatus @default(SCHEDULED)
+
+  notifySent          Boolean @default(false)
+  recordingNotifySent Boolean @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  course  Course  @relation(fields: [courseId], references: [id])
   section Section? @relation(fields: [sectionId], references: [id])
 
   @@index([courseId])
-  @@index([sectionId])
   @@index([scheduledAt])
-  @@index([status])
-  @@index([notifySent, scheduledAt]) // For cron job queries
 }
 
-// Device tokens for push notifications (FCM)
+//////////////////////////////////////////////////////
+// NOTIFICATIONS
+//////////////////////////////////////////////////////
+
 model DeviceToken {
   id        String   @id @default(auto()) @map("_id") @db.ObjectId
   userId    String   @db.ObjectId
-  token     String   // FCM device token
-  platform  String   @default("android") // android, ios, web
+  token     String
+  platform  String   @default("android")
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   user User @relation(fields: [userId], references: [id])
 
-  @@unique([userId, token]) // Prevent duplicate tokens per user
-  @@index([userId])
+  @@unique([userId, token])
 }
 
-// Notification log for tracking sent notifications
 model NotificationLog {
   id          String    @id @default(auto()) @map("_id") @db.ObjectId
   userId      String    @db.ObjectId
-  type        String    // LIVE_CLASS, RECORDING_AVAILABLE
+  type        String
   title       String
   body        String
-  data        String?   // JSON payload
+  data        String?
   liveClassId String?   @db.ObjectId
   sent        Boolean   @default(false)
   sentAt      DateTime?
@@ -210,6 +253,112 @@ model NotificationLog {
   user User @relation(fields: [userId], references: [id])
 
   @@index([userId])
-  @@index([type])
-  @@index([liveClassId])
+}
+//////////////////////////////////////////////////////
+// E-COMMERCE
+//////////////////////////////////////////////////////
+
+model Category {
+  id          String   @id @default(auto()) @map("_id") @db.ObjectId
+  name        String
+  description String?
+  image       String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  products    Product[]
+
+  @@index([name])
+}
+
+model Product {
+  id          String   @id @default(auto()) @map("_id") @db.ObjectId
+  name        String
+  description String?
+  image       String?
+  price       Float
+  stock       Int      @default(0)
+  isActive    Boolean  @default(true)
+
+  categoryId  String   @db.ObjectId
+  category    Category @relation(fields: [categoryId], references: [id])
+
+  orderItems  OrderItem[]
+  cartItems   CartItem[]
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([categoryId])
+  @@index([isActive])
+}
+
+model Cart {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  userId    String   @db.ObjectId
+  user      User     @relation(fields: [userId], references: [id])
+  items     CartItem[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId])
+}
+
+model CartItem {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  cartId    String   @db.ObjectId
+  productId String   @db.ObjectId
+  quantity  Int      @default(1)
+
+  cart      Cart     @relation(fields: [cartId], references: [id])
+  product   Product  @relation(fields: [productId], references: [id])
+
+  @@unique([cartId, productId])
+}
+
+enum OrderStatus {
+  PENDING
+  PAID
+  SHIPPED
+  DELIVERED
+  CANCELLED
+}
+
+model Order {
+  id            String      @id @default(auto()) @map("_id") @db.ObjectId
+  userId        String      @db.ObjectId
+  user          User        @relation(fields: [userId], references: [id])
+
+  totalAmount   Float
+  status        OrderStatus @default(PENDING)
+
+  shippingName      String
+  shippingPhone     String
+  shippingAddress   String
+  shippingCity      String
+  shippingState     String
+  shippingPostal    String
+
+  payment       Payment?
+  items         OrderItem[]
+
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([userId])
+  @@index([status])
+}
+
+model OrderItem {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  orderId   String   @db.ObjectId
+  productId String   @db.ObjectId
+
+  quantity  Int
+  price     Float
+
+  order     Order   @relation(fields: [orderId], references: [id])
+  product   Product @relation(fields: [productId], references: [id])
+
+  @@index([orderId])
 }

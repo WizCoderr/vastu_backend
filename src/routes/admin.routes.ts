@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { requireAdmin } from '../core/authMiddleware';
 import { AdminIntent } from '../admin/admin.intent';
 import liveClassAdminRoutes from '../live-class/live-class.admin.routes';
+import { remidiesAdminRouter } from '../remidies/remidies.routes';
 
 const router = Router();
 
@@ -16,5 +17,10 @@ router.get('/payments', requireAdmin, AdminIntent.getPaymentStats);
 // LIVE CLASSES ADMIN ROUTES
 // =============================================================================
 router.use('/live-classes', liveClassAdminRoutes);
+
+// =============================================================================
+// REMIDIES E-COMMERCE ADMIN ROUTES
+// =============================================================================
+router.use('/remidies', requireAdmin, remidiesAdminRouter);
 
 export default router;

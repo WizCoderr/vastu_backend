@@ -110,8 +110,8 @@ export class AdminReducer {
 
             // Calculate Stats
             const totalVolume = payments
-                .filter(p => p.status === 'COMPLETED' || p.status === 'SUCCEEDED')
-                .reduce((acc, curr) => acc + (parseFloat(curr.amount) || 0), 0);
+                .filter(p => p.status === 'COMPLETED')
+                .reduce((acc, curr) => acc + (curr.amount || 0), 0);
 
             const refundCount = payments.filter(p => p.status === 'REFUNDED').length;
             const refundRate = payments.length > 0 ? ((refundCount / payments.length) * 100).toFixed(2) + '%' : '0%';
@@ -119,7 +119,7 @@ export class AdminReducer {
             // Recent Transactions (Last 20)
             const recentTransactions = payments.slice(0, 20).map(p => ({
                 id: p.id,
-                transactionId: p.razorpayPaymentId || p.providerId || `TXN-${p.id.slice(-6)}`,
+                transactionId: p.providerPaymentId || p.providerOrderId || `TXN-${p.id.slice(-6)}`,
                 customer: {
                     name: p.user?.name || 'Unknown',
                     email: p.user?.email || 'No Email'
