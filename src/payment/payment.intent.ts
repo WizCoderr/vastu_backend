@@ -1,6 +1,7 @@
 import { Response } from "express";
 import { AuthRequest } from "../core/authMiddleware";
 import { PaymentReducer } from "./payment.reducer";
+import { Result } from "../core/result";
 
 export class PaymentIntent {
 
@@ -71,6 +72,42 @@ export class PaymentIntent {
                 : res.status(400).json({ error: result.error });
         } catch {
             res.status(500).json({ error: "Failed to fetch payments" });
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    //  New Methods
+    // -------------------------------------------------------------------------
+
+    static async getCoursePaymentPlan(req: AuthRequest, res: Response) {
+        try {
+            const { courseId } = req.params;
+            const result = await PaymentReducer.getCoursePaymentPlan(courseId);
+            return result.success ? res.json(result.data) : res.status(400).json(result);
+        } catch {
+            res.status(500).json({ error: "Failed to fetch plan" });
+        }
+    }
+
+    static async getStudentPayments(req: AuthRequest, res: Response) {
+        if (!req.user) return res.status(401).json({ error: "Unauthorized" });
+        try {
+            const { courseId } = req.params;
+            const result = await PaymentReducer.getStudentPayments(req.user.userId, courseId);
+            return result.success ? res.json(result.data) : res.status(400).json(result);
+        } catch {
+            res.status(500).json({ error: "Failed to fetch student payments" });
+        }
+    }
+
+    static async payInstallment(req: AuthRequest, res: Response) {
+        if (!req.user) return res.status(401).json({ error: "Unauthorized" });
+        try {
+            const { paymentId } = req.params;
+            const result = await PaymentReducer.payInstallment(req.user.userId, paymentId);
+            return result.success ? res.json(result.data) : res.status(400).json(result);
+        } catch {
+            res.status(500).json({ error: "Failed to initiate installment payment" });
         }
     }
 }

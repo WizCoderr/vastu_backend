@@ -13,7 +13,7 @@ const FCM_ENDPOINT = "https://fcm.googleapis.com/fcm/send";
 const FCM_SERVER_KEY = process.env.FCM_SERVER_KEY;
 
 // Notification types
-export type NotificationType = "LIVE_CLASS" | "RECORDING_AVAILABLE";
+export type NotificationType = "LIVE_CLASS" | "RECORDING_AVAILABLE" | "PAYMENT_REMINDER" | "PAYMENT_OVERDUE";
 
 interface FCMNotificationPayload {
     title: string;
@@ -372,21 +372,55 @@ export class NotificationService {
     }
 
     /**
-     * Send a test notification to a specific token (for debugging)
+     * Send payment reminder to a specific user
      */
-    static async sendTestNotification(token: string): Promise<boolean> {
-        const notification: FCMNotificationPayload = {
-            title: "Test Notification",
-            body: "This is a test notification from the Vastu backend",
-        };
+    static async sendPaymentReminder(userId: string, courseTitle: string, amount: number, dueDate: Date, isOverdue: boolean = false): Promise<void> {
+        try {
+            const deviceTokens = await prisma.deviceToken.findMany({
+                where: { userId },
+                select: { token: true }
+            });
 
-        const data: FCMDataPayload = {
-            type: "LIVE_CLASS",
-            classId: "test",
-            courseId: "test",
-        };
+            if (deviceTokens.length === 0) return;
 
-        const result = await this.sendToTokens([token], notification, data);
-        return result.success > 0;
+            const tokens = deviceTokens.map(dt => dt.token);
+            
+            const dateStr = dueDate.toLocaleDateString();
+            const title = isOverdue ? "⚠️ Payment Overdue" : "📅 Payment Reminder";
+            const body = isOverdue 
+                ? `Your payment of ₹${amount} for "${courseTitle}" was due on ${dateStr}. Please pay immediately to restore access.`
+                : `Upcoming payment of ₹${amount} for "${courseTitle}" is due on ${dateStr}.`;
+
+            const notification: FCMNotificationPayload = {
+                title,
+                body,
+                click_action: "OPEN_PAYMENTS"
+            };
+
+            const data: any = { // Using any to bypass strict type check for now or I should update type
+                type: "PAYMENT_REMINDER",
+                courseTitle,
+                amount: String(amount),
+                dueDate: dateStr
+            };
+
+            await this.sendToTokens(tokens, notification, data);
+            
+            // Log
+            await prisma.notificationLog.create({
+                data: {
+                    userId,
+                    type: isOverdue ? "PAYMENT_OVERDUE" : "PAYMENT_REMINDER",
+                    title: notification.title,
+                    body: notification.body,
+                    data: JSON.stringify(data),
+                    sent: true,
+                    sentAt: new Date()
+                }
+            });
+
+        } catch (error) {
+            logger.error("NotificationService: Failed to send payment reminder", { userId, error });
+        }
     }
 }

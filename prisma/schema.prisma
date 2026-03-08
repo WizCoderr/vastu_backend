@@ -24,6 +24,7 @@ model User {
   enrollments      Enrollment[]
   progress         Progress[]
   payments         Payment[]
+  studentPayments  StudentPayment[]
   deviceTokens     DeviceToken[]
   notificationLogs NotificationLog[]
 
@@ -45,7 +46,11 @@ model Course {
   thumbnail    String?
   price        String
   published    Boolean @default(false)
+  isVisible    Boolean @default(true)
   instructorId String
+
+  startDate    DateTime?
+  endDate      DateTime?
 
   s3Key     String?
   s3Bucket  String?
@@ -54,6 +59,8 @@ model Course {
   sections        Section[]
   enrollments     Enrollment[]
   payments        Payment[]
+  paymentPlans    CoursePaymentPlan[]
+  studentPayments StudentPayment[]
   courseResources CourseResource[]
   liveClasses     LiveClass[]
 }
@@ -109,12 +116,67 @@ model Enrollment {
   userId    String   @db.ObjectId
   courseId  String   @db.ObjectId
   serialNumber String?
+  status    EnrollmentStatus @default(ACTIVE)
   createdAt DateTime @default(now())
 
   user   User   @relation(fields: [userId], references: [id])
   course Course @relation(fields: [courseId], references: [id])
 
   @@unique([userId, courseId])
+}
+
+enum EnrollmentStatus {
+  ACTIVE
+  PAYMENT_DUE
+  COMPLETED
+  CANCELLED
+}
+
+model CoursePaymentPlan {
+  id             String @id @default(auto()) @map("_id") @db.ObjectId
+  courseId       String @db.ObjectId
+  stageName      String
+  amount         Float
+  dueAfterDays   Int    @default(0)
+  orderIndex     Int
+
+  course         Course @relation(fields: [courseId], references: [id])
+  
+  @@index([courseId])
+}
+
+model StudentPayment {
+  id              String   @id @default(auto()) @map("_id") @db.ObjectId
+  userId          String   @db.ObjectId
+  courseId        String   @db.ObjectId
+  planId          String?  @db.ObjectId
+  stageName       String
+  amount          Float
+  
+  razorpayOrderId   String?
+  razorpayPaymentId String?
+  
+  status          StudentPaymentStatus @default(PENDING)
+  
+  dueDate         DateTime?
+  paidAt          DateTime?
+  
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  user            User     @relation(fields: [userId], references: [id])
+  course          Course   @relation(fields: [courseId], references: [id])
+  
+  @@index([userId])
+  @@index([courseId])
+  @@index([status])
+}
+
+enum StudentPaymentStatus {
+  PENDING
+  PAID
+  FAILED
+  OVERDUE
 }
 
 model Progress {

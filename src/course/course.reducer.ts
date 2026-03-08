@@ -5,6 +5,10 @@ import { CourseDto } from './course.dto';
 export class CourseReducer {
     static async listCourses(): Promise<Result<CourseDto[]>> {
         const courses = await prisma.course.findMany({
+            where: { 
+                published: true,
+                isVisible: true 
+            },
             include: {
                 sections: {
                     include: {
@@ -16,6 +20,7 @@ export class CourseReducer {
                     }
                 },
                 courseResources: true,
+                paymentPlans: true,
                 liveClasses: {
                     where: {
                         status: { in: ['SCHEDULED', 'LIVE'] },
@@ -28,11 +33,15 @@ export class CourseReducer {
         });
         const { getPresignedReadUrl, getDirectS3Url } = await import('../core/s3Service');
 
+        const now = new Date();
+
         // Map Decimal to number for DTO & Sign URLs
         const dtos = await Promise.all(courses.map(async (c) => ({
             ...c,
             price: Number(c.price),
             thumbnail: c.s3Key ? await getDirectS3Url(c.s3Key, c.s3Bucket || undefined).catch(() => c.thumbnail) : c.thumbnail,
+            // Only show payment plans if not expired
+            paymentPlans: (c.endDate && now > c.endDate) ? [] : c.paymentPlans,
             // number of students enrolled
             studentCount: await prisma.enrollment.count({ where: { courseId: c.id } }),
             sections: await Promise.all(c.sections.map(async (s) => ({
@@ -173,11 +182,15 @@ export class CourseReducer {
                         }
                     }
                 },
-                courseResources: true
+                courseResources: true,
+                paymentPlans: true
             }
         });
 
         if (!course) return Result.fail('Course not found');
+
+        const now = new Date();
+        const paymentPlans = (course.endDate && now > course.endDate) ? [] : course.paymentPlans;
 
         let enrollment = null;
         if (userId) {
@@ -253,6 +266,7 @@ export class CourseReducer {
             studentCount,
             sections: sectionsWithSignedUrls,
             resources,
+            paymentPlans,
             liveClasses: liveClasses.length > 0 ? liveClasses : undefined
         });
     }
@@ -308,9 +322,23 @@ export class CourseReducer {
         const enrollments = lecture.section.course.enrollments;
         const isInstructor = lecture.section.course.instructorId === userId;
         const isAdmin = role === 'admin';
+        const courseEndDate = lecture.section.course.endDate;
+        const now = new Date();
 
         if (enrollments.length === 0 && !isInstructor && !isAdmin) {
             return Result.fail('You are not enrolled in this course');
+        }
+
+        if (enrollments.length > 0) {
+            const enrollment = enrollments[0];
+            if (enrollment.status === 'PAYMENT_DUE') {
+                 return Result.fail('Access restricted: Payment overdue. Please complete your pending payment.');
+            }
+        }
+
+        // Check for course expiry
+        if (courseEndDate && now > courseEndDate && !isAdmin && !isInstructor) {
+            return Result.fail('Access denied: This course has expired.');
         }
 
         return Result.ok(lecture);
