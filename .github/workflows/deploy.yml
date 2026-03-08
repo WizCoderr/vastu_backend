@@ -15,7 +15,7 @@ jobs:
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           port: 22
-          timeout: 30
+          timeout: 30s
           debug: true
           script: |
             cd ~/vastu_backend
