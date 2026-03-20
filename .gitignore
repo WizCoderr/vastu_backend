@@ -47,3 +47,7 @@ brain
 scripts
 .claude
 *.postman_collection.json
+
+# markdown files: ignore all but README.md
+*.md
+!README.md
