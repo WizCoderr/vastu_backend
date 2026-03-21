@@ -1,7 +1,7 @@
 import { prisma } from "../core/prisma";
 import { Result } from "../core/result";
 import { EnrollmentRepository } from "../enrollment/enrollment.repository";
-import { StudentPaymentStatus, EnrollmentStatus } from "../generated/prisma"; // Adjust import if needed
+import { EmailService } from "../notification/email.service";
 
 export class PaymentReducer {
 
@@ -23,7 +23,6 @@ export class PaymentReducer {
             orderBy: { dueDate: 'asc' }
         });
         
-        // Also get course total info
         const course = await prisma.course.findUnique({ 
             where: { id: courseId },
             select: { price: true, title: true }
@@ -46,7 +45,7 @@ export class PaymentReducer {
     }
 
     // -------------------------------------------------------------------------
-    //  Enrollment Logic
+    //  Course Enrollment Logic (INSTALLMENT ONLY)
     // -------------------------------------------------------------------------
 
     static async createRazorpayOrder(userId: string, courseId: string) {
@@ -64,58 +63,41 @@ export class PaymentReducer {
         try {
             const { createRazorpayOrder } = await import("../core/razorpayService");
 
-            // Check for Payment Plans
-            const now = new Date();
-            const isPastEndDate = course.endDate && now > course.endDate;
-            
-            // Only use plan if it exists AND we haven't passed the endDate
-            const hasPlan = course.paymentPlans.length > 0 && !isPastEndDate;
-            
-            let amountToPay = Number(course.price);
-            let stageName = "Full Payment";
-            let planId: string | undefined = undefined;
-
-            if (hasPlan) {
-                const firstStage = course.paymentPlans[0]; // Enrollment Stage
-                amountToPay = firstStage.amount;
-                stageName = firstStage.stageName;
-                planId = firstStage.id;
+            // We MUST have at least one payment plan (the first installment)
+            if (course.paymentPlans.length === 0) {
+                return Result.fail("No payment plan configured for this course. Please contact administrator.");
             }
 
-            // RECEIPT <= 40 CHAR SAFE
+            const firstStage = course.paymentPlans[0]; 
+            const amountToPay = firstStage.amount;
+            const stageName = firstStage.stageName;
+            const planId = firstStage.id;
+
             const shortUser = userId.substring(0, 8);
             const receipt = `rcpt_${shortUser}_${Date.now().toString().slice(-6)}`;
 
             const order = await createRazorpayOrder(amountToPay, "INR", receipt);
 
-            // If it's a payment plan, we should track the intent via StudentPayment (Stage 1)
-            // But verify is separate. We can rely on verify logic or pre-create PENDING payment.
-            // Let's pre-create to lock the orderId to the plan stage.
-            
-            if (hasPlan) {
-                // Check if a pending payment exists for stage 1? No, user might retry.
-                // Just create a new record.
-                await prisma.studentPayment.create({
-                    data: {
-                        userId,
-                        courseId,
-                        planId: planId, // Could be null if full payment logic used, but here we have plan
-                        stageName: stageName,
-                        amount: amountToPay,
-                        razorpayOrderId: order.id,
-                        status: "PENDING",
-                        // Due immediately
-                        dueDate: new Date(), 
-                    }
-                });
-            }
+            // Pre-create PENDING payment to track intent
+            await prisma.studentPayment.create({
+                data: {
+                    userId,
+                    courseId,
+                    planId: planId,
+                    stageName: stageName,
+                    amount: amountToPay,
+                    razorpayOrderId: order.id,
+                    status: "PENDING",
+                    dueDate: new Date(), 
+                }
+            });
 
             return Result.ok({
                 orderId: order.id,
-                amount: order.amount, // razorpay amount (paise)
+                amount: order.amount, 
                 currency: order.currency,
                 keyId: process.env.RAZORPAY_KEY_ID,
-                isInstallment: hasPlan,
+                isInstallment: true,
                 stageName: stageName
             });
 
@@ -132,109 +114,90 @@ export class PaymentReducer {
 
             const course = await prisma.course.findUnique({ 
                 where: { id: courseId },
-                include: { paymentPlans: { orderBy: { orderIndex: 'asc' } } }
+                include: { 
+                    paymentPlans: { orderBy: { orderIndex: 'asc' } },
+                }
             });
 
-            if (!course) return Result.fail("Course not found");
+            const user = await prisma.user.findUnique({ where: { id: userId } });
 
-            // Check if this was a staged payment
+            if (!course || !user) return Result.fail("Course or User not found");
+
             const studentPayment = await prisma.studentPayment.findFirst({
                 where: { razorpayOrderId: orderId }
             });
 
-            if (studentPayment) {
-                // 1. Update StudentPayment status
-                await prisma.studentPayment.update({
-                    where: { id: studentPayment.id },
-                    data: {
-                        status: "PAID",
-                        razorpayPaymentId: paymentId,
-                        paidAt: new Date()
-                    }
-                });
-
-                // 2. Enrollment Logic
-                const enrollmentExists = await EnrollmentRepository.findEnrollment(userId, courseId);
-                
-                // If this is the FIRST payment (Enrollment Stage), create enrollment
-                if (!enrollmentExists) {
-                     await EnrollmentRepository.createEnrollment(userId, courseId);
-                     
-                     // 3. Generate Future Payments
-                     if (course.paymentPlans.length > 1) {
-                        const enrollmentDate = new Date();
-                        
-                        // Skip first stage (index 0)
-                        const futureStages = course.paymentPlans.slice(1);
-                        
-                        for (const stage of futureStages) {
-                            const dueDate = new Date(enrollmentDate);
-                            dueDate.setDate(dueDate.getDate() + stage.dueAfterDays);
-
-                            await prisma.studentPayment.create({
-                                data: {
-                                    userId,
-                                    courseId,
-                                    planId: stage.id,
-                                    stageName: stage.stageName,
-                                    amount: stage.amount,
-                                    status: "PENDING",
-                                    dueDate: dueDate,
-                                    // razorpayOrderId is null until they click 'Pay' for this stage
-                                }
-                            });
-                        }
-                     }
-                } else {
-                    // Just a regular installment payment success
-                    // If any other payments were OVERDUE, re-check access?
-                    // The access check relies on enrollment status.
-                    // If all overdue payments are cleared, set enrollment status to ACTIVE.
-                    
-                    const overduePayments = await prisma.studentPayment.count({
-                        where: {
-                            userId,
-                            courseId,
-                            status: "OVERDUE"
-                        }
-                    });
-
-                    if (overduePayments === 0) {
-                         await prisma.enrollment.update({
-                            where: { userId_courseId: { userId, courseId } },
-                            data: { status: "ACTIVE" } // using string literal or enum
-                         });
-                    }
-                }
-
-                return Result.ok({ paymentId: studentPayment.id, status: "PAID" });
-
-            } else {
-                // LEGACY / FULL PAYMENT FLOW
-                // No pre-created StudentPayment found, so it must be a direct full payment or legacy flow.
-                
-                // Create legacy Payment record
-                const payment = await prisma.payment.create({
-                    data: {
-                        userId,
-                        courseId,
-                        amount: Number(course.price),
-                        type: "COURSE",
-                        provider: "RAZORPAY",
-                        status: "COMPLETED",
-                        providerOrderId: orderId,
-                        providerPaymentId: paymentId,
-                        providerSignature: signature
-                    }
-                });
-
-                await EnrollmentRepository.createEnrollment(userId, courseId);
-
-                return Result.ok(payment.id);
+            if (!studentPayment) {
+                return Result.fail("Associated payment record not found");
             }
 
+            // 1. Update StudentPayment status
+            const updatedPayment = await prisma.studentPayment.update({
+                where: { id: studentPayment.id },
+                data: {
+                    status: "PAID",
+                    razorpayPaymentId: paymentId,
+                    paidAt: new Date()
+                }
+            });
+
+            // 2. Enrollment Logic
+            let enrollment = await EnrollmentRepository.findEnrollment(userId, courseId);
+            
+            // If this is the FIRST payment, create enrollment and generate future stages
+            if (!enrollment) {
+                 enrollment = await EnrollmentRepository.createEnrollment(userId, courseId);
+                 
+                 // Generate Future Payments
+                 if (course.paymentPlans.length > 1) {
+                    const enrollmentDate = new Date();
+                    const futureStages = course.paymentPlans.slice(1);
+                    
+                    for (const stage of futureStages) {
+                        const dueDate = new Date(enrollmentDate);
+                        dueDate.setDate(dueDate.getDate() + stage.dueAfterDays);
+
+                        await prisma.studentPayment.create({
+                            data: {
+                                userId,
+                                courseId,
+                                planId: stage.id,
+                                stageName: stage.stageName,
+                                amount: stage.amount,
+                                status: "PENDING",
+                                dueDate: dueDate,
+                            }
+                        });
+                    }
+                 }
+            } else {
+                // Check if we need to reactivate enrollment if it was overdue
+                const overdueCount = await prisma.studentPayment.count({
+                    where: { userId, courseId, status: "OVERDUE" }
+                });
+
+                if (overdueCount === 0 && enrollment.status === "PAYMENT_DUE") {
+                    await prisma.enrollment.update({
+                        where: { id: enrollment.id },
+                        data: { status: "ACTIVE" }
+                    });
+                }
+            }
+
+            // 3. Send Receipt Email
+            await EmailService.sendPaymentReceipt({
+                receiptId: paymentId,
+                date: new Date(),
+                userName: user.name || "Student",
+                userEmail: user.email,
+                amount: studentPayment.amount,
+                courseTitle: course.title,
+                serialNumber: enrollment?.serialNumber || undefined
+            });
+
+            return Result.ok({ paymentId: updatedPayment.id, status: "PAID", serialNumber: enrollment?.serialNumber });
+
         } catch (error: any) {
-            if (error.code === "P2002") return Result.ok("Already enrolled");
             return Result.fail(`Verification failed: ${error.message}`);
         }
     }
@@ -244,29 +207,23 @@ export class PaymentReducer {
     // -------------------------------------------------------------------------
 
     static async payInstallment(userId: string, paymentId: string) {
-        // Find the pending payment
         const payment = await prisma.studentPayment.findUnique({
-            where: { id: paymentId }
+            where: { id: paymentId },
+            include: { course: true, user: true }
         });
 
         if (!payment) return Result.fail("Payment record not found");
         if (payment.userId !== userId) return Result.fail("Unauthorized");
         if (payment.status === "PAID") return Result.fail("Already paid");
 
-        // Create Razorpay Order for this specific installment
         try {
             const { createRazorpayOrder } = await import("../core/razorpayService");
-            
             const receipt = `inst_${payment.id.substring(0,8)}_${Date.now().toString().slice(-6)}`;
-            
             const order = await createRazorpayOrder(payment.amount, "INR", receipt);
             
-            // Update the record with the new order ID
             await prisma.studentPayment.update({
                 where: { id: paymentId },
-                data: {
-                    razorpayOrderId: order.id
-                }
+                data: { razorpayOrderId: order.id }
             });
 
              return Result.ok({
@@ -283,50 +240,169 @@ export class PaymentReducer {
     }
 
     // -------------------------------------------------------------------------
-    //  Legacy / Free
+    //  Remidies / Order Payments (Normal E-commerce)
     // -------------------------------------------------------------------------
 
-    static async createFreeEnrollment(userId: string, courseId: string) {
+    static async createRemidiesOrder(userId: string, orderId: string) {
+        const order = await prisma.order.findUnique({
+            where: { id: orderId },
+            include: { user: true }
+        });
+
+        if (!order) return Result.fail("Order not found");
+        if (order.userId !== userId) return Result.fail("Unauthorized");
+
         try {
-            const course = await prisma.course.findUnique({ where: { id: courseId } });
-            if (!course) return Result.fail("Course not found");
+            const { createRazorpayOrder } = await import("../core/razorpayService");
+            const receipt = `order_${order.id.substring(0,8)}_${Date.now().toString().slice(-6)}`;
+            const rzpOrder = await createRazorpayOrder(order.totalAmount, "INR", receipt);
 
-            if (course.price !== "0" && course.price !== "0.00" && parseInt(course.price) !== 0) {
-                return Result.fail("Course is not free");
-            }
-
-            const existing = await EnrollmentRepository.findEnrollment(userId, courseId);
-            if (existing) return Result.fail("Already enrolled");
-
-            const payment = await prisma.payment.create({
-                data: {
+            // Create or update Payment record
+            await prisma.payment.upsert({
+                where: { orderId: order.id },
+                update: {
+                    providerOrderId: rzpOrder.id,
+                    status: "PENDING"
+                },
+                create: {
                     userId,
-                    courseId,
-                    amount: 0,
-                    type: "COURSE",
+                    orderId: order.id,
+                    amount: order.totalAmount,
+                    type: "PRODUCT",
                     provider: "RAZORPAY",
-                    status: "COMPLETED",
-                    providerOrderId: "FREE_ENROLLMENT"
+                    providerOrderId: rzpOrder.id,
+                    status: "PENDING"
                 }
             });
 
-            await EnrollmentRepository.createEnrollment(userId, courseId);
-
-            return Result.ok(payment.id);
-
+            return Result.ok({
+                orderId: rzpOrder.id,
+                amount: rzpOrder.amount,
+                currency: rzpOrder.currency,
+                keyId: process.env.RAZORPAY_KEY_ID
+            });
         } catch (error: any) {
-            if (error.code === "P2002") return Result.ok("Already enrolled");
-            return Result.fail(`Free enrollment failed: ${error.message}`);
+            return Result.fail(`Remidies order payment failed: ${error.message}`);
         }
     }
 
-    static async getAllPayments() {
-        // Admin View
-        const payments = await prisma.payment.findMany({
-            orderBy: { createdAt: 'desc' },
-            take: 50
-        });
+    static async verifyRemidiesPayment(userId: string, orderId: string, rzpOrderId: string, rzpPaymentId: string, signature: string) {
+        try {
+            const { verifyRazorpaySignature } = await import("../core/razorpayService");
+            const valid = verifyRazorpaySignature(rzpOrderId, rzpPaymentId, signature);
+            if (!valid) return Result.fail("Invalid payment signature");
 
-        return Result.ok({ payments });
+            const payment = await prisma.payment.findUnique({
+                where: { orderId },
+                include: { user: true, order: { include: { items: { include: { product: true } } } } }
+            });
+
+            if (!payment) return Result.fail("Payment record not found");
+
+            await prisma.$transaction([
+                prisma.payment.update({
+                    where: { id: payment.id },
+                    data: {
+                        status: "COMPLETED",
+                        providerPaymentId: rzpPaymentId,
+                        providerSignature: signature
+                    }
+                }),
+                prisma.order.update({
+                    where: { id: orderId },
+                    data: { status: "PAID" }
+                })
+            ]);
+
+            // Send Email Receipt for Products
+            if (payment.user && payment.order) {
+                await EmailService.sendPaymentReceipt({
+                    receiptId: rzpPaymentId,
+                    date: new Date(),
+                    userName: payment.user.name || "Customer",
+                    userEmail: payment.user.email,
+                    amount: payment.amount,
+                    items: payment.order.items.map(item => ({
+                        name: item.product.name,
+                        quantity: item.quantity,
+                        price: item.price
+                    }))
+                });
+            }
+
+            return Result.ok({ success: true, paymentId: payment.id });
+        } catch (error: any) {
+            return Result.fail(`Remidies verification failed: ${error.message}`);
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    //  Admin View
+    // -------------------------------------------------------------------------
+
+    static async getAllCoursePayments() {
+        // Course payments are in StudentPayment table
+        const payments = await prisma.studentPayment.findMany({
+            include: { user: true, course: true },
+            orderBy: { createdAt: 'desc' }
+        });
+        return Result.ok(payments);
+    }
+
+    static async getAllRemidiesPayments() {
+        // Remedies payments are in Payment table with type PRODUCT
+        const payments = await prisma.payment.findMany({
+            where: { type: "PRODUCT" },
+            include: { user: true, order: true },
+            orderBy: { createdAt: 'desc' }
+        });
+        return Result.ok(payments);
+    }
+
+    static async getCentralizedPayments() {
+        try {
+            // 1. Fetch Course Installments
+            const coursePayments = await prisma.studentPayment.findMany({
+                include: { user: true, course: true },
+                orderBy: { createdAt: 'desc' },
+                take: 100 // Limit for performance, pagination can be added
+            });
+
+            // 2. Fetch Product Payments
+            const productPayments = await prisma.payment.findMany({
+                where: { type: "PRODUCT" },
+                include: { user: true, order: true },
+                orderBy: { createdAt: 'desc' },
+                take: 100
+            });
+
+            // 3. Normalize and Combine
+            const unified = [
+                ...coursePayments.map(p => ({
+                    id: p.id,
+                    date: p.createdAt,
+                    amount: p.amount,
+                    status: p.status,
+                    type: "COURSE_INSTALLMENT",
+                    customer: p.user?.name || "Unknown",
+                    item: p.course?.title || "Course",
+                    providerOrderId: p.razorpayOrderId
+                })),
+                ...productPayments.map(p => ({
+                    id: p.id,
+                    date: p.createdAt,
+                    amount: p.amount,
+                    status: p.status,
+                    type: "REMIDIES_PRODUCT",
+                    customer: p.user?.name || "Unknown",
+                    item: `Order #${p.orderId?.substring(0, 8) || 'N/A'}`,
+                    providerOrderId: p.providerOrderId
+                }))
+            ].sort((a, b) => b.date.getTime() - a.date.getTime());
+
+            return Result.ok(unified);
+        } catch (error: any) {
+            return Result.fail(`Failed to fetch centralized payments: ${error.message}`);
+        }
     }
 }

@@ -2,8 +2,8 @@ import { Router, RequestHandler } from 'express';
 import * as ctrl from './remidies.controller';
 
 // ─────────────────────────────────────────────
-// USER ROUTES  (mounted under /api/student/remidies)
-// Auth already applied globally by student.routes.ts
+// USER CATALOG ROUTES  (mounted under /api/student/remidies)
+// Note: Payment specific routes are now in payment module
 // ─────────────────────────────────────────────
 export const remidiesUserRouter = Router();
 
@@ -19,13 +19,11 @@ remidiesUserRouter.post('/cart', ctrl.addToCart as RequestHandler);
 remidiesUserRouter.put('/cart/:productId', ctrl.updateCartItem as RequestHandler);
 remidiesUserRouter.delete('/cart/:productId', ctrl.removeCartItem as RequestHandler);
 
-// Orders
-remidiesUserRouter.post('/orders', ctrl.createOrder as RequestHandler);
+// Order History (Read-only view)
 remidiesUserRouter.get('/orders', ctrl.getUserOrders as RequestHandler);
 
 // ─────────────────────────────────────────────
-// ADMIN ROUTES  (mounted under /api/admin/remidies)
-// Auth + admin check already applied globally by admin.routes.ts
+// ADMIN CATALOG ROUTES  (mounted under /api/admin/remidies)
 // ─────────────────────────────────────────────
 export const remidiesAdminRouter = Router();
 
@@ -41,5 +39,5 @@ remidiesAdminRouter.post('/products', ctrl.createProduct as RequestHandler);
 remidiesAdminRouter.put('/products/:id', ctrl.updateProduct as RequestHandler);
 remidiesAdminRouter.delete('/products/:id', ctrl.deleteProduct as RequestHandler);
 
-// Order management
+// Order management (Status)
 remidiesAdminRouter.put('/orders/:id/status', ctrl.updateOrderStatus as RequestHandler);

@@ -2,7 +2,6 @@ import { Router, RequestHandler } from 'express';
 import { requireAuth, AuthRequest } from '../core/authMiddleware';
 import { CourseIntent } from '../course/course.intent';
 import { ProgressIntent } from '../progress/progress.intent';
-import { Result } from '../core/result';
 import { AuthIntent } from '../auth/auth.intent';
 import { LiveClassStudentIntent } from '../live-class/live-class.student.intent';
 import { remidiesUserRouter } from '../remidies/remidies.routes';
@@ -26,28 +25,18 @@ router.get('/lectures/:lectureId/stream-url', CourseIntent.getLectureStreamUrl a
 // =============================================================================
 // LIVE CLASSES STUDENT ROUTES
 // =============================================================================
-
-// Get today's live classes for enrolled courses
 router.get('/live-classes/today', LiveClassStudentIntent.getToday as RequestHandler);
-
-// Get upcoming live classes for enrolled courses
 router.get('/live-classes/upcoming', LiveClassStudentIntent.getUpcoming as RequestHandler);
-
-// Get recordings for a specific course
 router.get('/course/:courseId/recordings', LiveClassStudentIntent.getRecordings as RequestHandler);
 
 // =============================================================================
 // DEVICE TOKEN ROUTES (for push notifications)
 // =============================================================================
-
-// Register FCM device token
 router.post('/device-token', LiveClassStudentIntent.registerDeviceToken as RequestHandler);
-
-// Remove FCM device token (on logout)
 router.delete('/device-token', LiveClassStudentIntent.removeDeviceToken as RequestHandler);
 
 // =============================================================================
-// REMIDIES E-COMMERCE ROUTES
+// REMIDIES E-COMMERCE CATALOG ROUTES (Non-payment)
 // =============================================================================
 router.use('/remidies', remidiesUserRouter);
 

@@ -14,11 +14,18 @@ export class EnrollmentRepository {
         const existing = await this.findEnrollment(userId, courseId);
         if (existing) return existing;
 
-        // Generate Serial Number: 001, 002, etc. based on course enrollment count
-        const count = await prisma.enrollment.count({
-            where: { courseId }
+        // Generate Serial Number: 001, 002, etc. based on last entry
+        const lastEnrollment = await prisma.enrollment.findFirst({
+            where: { courseId },
+            orderBy: { serialNumber: 'desc' }
         });
-        const serialNumber = (count + 1).toString().padStart(3, '0');
+
+        let nextSerial = 1;
+        if (lastEnrollment && lastEnrollment.serialNumber) {
+            nextSerial = parseInt(lastEnrollment.serialNumber) + 1;
+        }
+        
+        const serialNumber = nextSerial.toString().padStart(3, '0');
 
         const enrollment = await prisma.enrollment.create({
             data: {

@@ -28,6 +28,12 @@ export class InstructorIntent {
                 instructorId: z.string(),
                 s3Key: z.string().optional(),
                 s3Bucket: z.string().optional(),
+                paymentPlans: z.array(z.object({
+                    stageName: z.string(),
+                    amount: z.number().positive(),
+                    dueAfterDays: z.number().int().min(0).default(0),
+                    orderIndex: z.number().int().min(0)
+                })).optional().default([])
             });
             const data = schema.parse(req.body);
 
@@ -42,16 +48,20 @@ export class InstructorIntent {
                     mediaType: 'image',
                     instructorId: data.instructorId,
                     published: true,
+                    paymentPlans: {
+                        create: data.paymentPlans
+                    }
                 },
+                include: {
+                    paymentPlans: true
+                }
             });
-
-
 
             logger.info('InstructorIntent.createCourse: Course created successfully', { courseId: course.id });
             res.status(201).json({ success: true, data: course });
         } catch (error: any) {
             logger.error('InstructorIntent.createCourse: Failed to create course', { error });
-            res.status(400).json({ error: 'Failed to create course', details: error instanceof z.ZodError ? error : error.message });
+            res.status(400).json({ error: 'Failed to create course', details: error instanceof z.ZodError ? error.issues : error.message });
         }
     }
 
@@ -554,6 +564,13 @@ export class InstructorIntent {
                 courseResources: z.array(resourceSchema).optional(),
                 resources: z.array(resourceSchema).optional(), // Alias for frontend compatibility
                 published: z.boolean().optional(),
+                paymentPlans: z.array(z.object({
+                    id: z.string().optional(),
+                    stageName: z.string(),
+                    amount: z.number().positive(),
+                    dueAfterDays: z.number().int().min(0).default(0),
+                    orderIndex: z.number().int().min(0)
+                })).optional(),
             });
 
             const data = courseSchema.parse(req.body);
@@ -578,6 +595,36 @@ export class InstructorIntent {
                         where: { id: courseId },
                         data: courseUpdateIs,
                     });
+                }
+
+                // 1.5 Sync Payment Plans
+                if (data.paymentPlans) {
+                    const incomingPlanIds = data.paymentPlans.map(p => p.id).filter(Boolean) as string[];
+                    // Delete removed plans
+                    await tx.coursePaymentPlan.deleteMany({
+                        where: { courseId, id: { notIn: incomingPlanIds } }
+                    });
+
+                    for (const plan of data.paymentPlans) {
+                        const planPayload = {
+                            courseId,
+                            stageName: plan.stageName,
+                            amount: plan.amount,
+                            dueAfterDays: plan.dueAfterDays,
+                            orderIndex: plan.orderIndex
+                        };
+
+                        if (plan.id) {
+                            await tx.coursePaymentPlan.update({
+                                where: { id: plan.id },
+                                data: planPayload
+                            });
+                        } else {
+                            await tx.coursePaymentPlan.create({
+                                data: planPayload
+                            });
+                        }
+                    }
                 }
 
                 // 2. Resources (Full Sync)

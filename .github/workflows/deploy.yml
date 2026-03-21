@@ -20,6 +20,7 @@ jobs:
           script: |
             cd ~/vastu_backend
             git reset --hard
-            git pull origin master
+            git 
+            pull origin master
             docker compose down || true
             docker compose up -d --build

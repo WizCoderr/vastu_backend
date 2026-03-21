@@ -4,19 +4,31 @@ import { PaymentIntent } from "../payment/payment.intent";
 
 const router = Router();
 
-router.post("/razorpay/order", requireAuth, PaymentIntent.createRazorpayOrder);
-router.post("/razorpay/verify", requireAuth, PaymentIntent.verifyRazorpayPayment);
-router.post("/free-enroll", requireAuth, PaymentIntent.createFreeEnrollment);
+// =============================================================================
+//  COURSE PAYMENTS (STUDENT)
+// =============================================================================
+router.post("/course/order", requireAuth, PaymentIntent.createRazorpayOrder);
+router.post("/course/verify", requireAuth, PaymentIntent.verifyRazorpayPayment);
+router.get("/course/:courseId/plan", PaymentIntent.getCoursePaymentPlan);
+router.get("/course/:courseId/my-payments", requireAuth, PaymentIntent.getStudentPayments);
+router.post("/course/installment/:paymentId/pay", requireAuth, PaymentIntent.payInstallment);
 
-// Payment Plans
-router.get("/courses/:courseId/payment-plan", PaymentIntent.getCoursePaymentPlan);
-router.post("/courses/:courseId/enroll", requireAuth, PaymentIntent.createRazorpayOrder); // Alias for enrollment
+// =============================================================================
+//  REMIDIES PAYMENTS (STUDENT)
+// =============================================================================
+router.post("/remidies/order", requireAuth, PaymentIntent.createRemidiesOrder);
+router.post("/remidies/verify", requireAuth, PaymentIntent.verifyRemidiesPayment);
 
-// Student Payments
-router.get("/student/course-payments/:courseId", requireAuth, PaymentIntent.getStudentPayments);
-router.post("/student/course-payments/:paymentId/pay", requireAuth, PaymentIntent.payInstallment);
+// =============================================================================
+//  ADMIN ROUTES
+// =============================================================================
+// Admin Course Payments
+router.get("/admin/course-payments", requireAdmin, PaymentIntent.getAllCoursePayments);
 
-// Admin-only: list all payments and total amount
-router.get("/admin/payments", requireAdmin, PaymentIntent.getAllPayments);
+// Admin Remidies Payments
+router.get("/admin/remidies-payments", requireAdmin, PaymentIntent.getAllRemidiesPayments);
+
+// Centralized Admin Payments (Unified)
+router.get("/admin/all", requireAdmin, PaymentIntent.getAllPayments);
 
 export default router;

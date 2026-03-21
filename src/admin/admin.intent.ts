@@ -106,18 +106,6 @@ export class AdminIntent {
         }
     }
 
-    static async getPaymentStats(req: Request, res: Response) {
-        logger.info('AdminIntent.getPaymentStats: Fetching payment stats');
-        const { AdminReducer } = await import('./admin.reducer');
-        const result = await AdminReducer.getPaymentStats();
-
-        if (result.success) {
-            res.status(200).json(result.data);
-        } else {
-            res.status(500).json({ error: result.error });
-        }
-    }
-
     static async deleteStorageFile(req: Request, res: Response) {
         const key = req.query.key as string;
         logger.info('AdminIntent.deleteStorageFile: Deleting file', { key });

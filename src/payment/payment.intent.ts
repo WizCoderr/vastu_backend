@@ -1,7 +1,6 @@
 import { Response } from "express";
 import { AuthRequest } from "../core/authMiddleware";
 import { PaymentReducer } from "./payment.reducer";
-import { Result } from "../core/result";
 
 export class PaymentIntent {
 
@@ -38,7 +37,7 @@ export class PaymentIntent {
             );
 
             return result.success
-                ? res.json({ success: true, paymentId: result.data })
+                ? res.json(result.data)
                 : res.status(400).json({ error: result.error });
 
         } catch {
@@ -46,38 +45,67 @@ export class PaymentIntent {
         }
     }
 
-    static async createFreeEnrollment(req: AuthRequest, res: Response) {
+    // --- Remedies Payments ---
+
+    static async createRemidiesOrder(req: AuthRequest, res: Response) {
         if (!req.user) return res.status(401).json({ error: "Unauthorized" });
-
         try {
-            const { courseId } = req.body;
-            if (!courseId) return res.status(400).json({ error: "courseId is required" });
+            const { orderId } = req.body;
+            if (!orderId) return res.status(400).json({ error: "orderId is required" });
 
-            const result = await PaymentReducer.createFreeEnrollment(req.user.userId, courseId);
-
-            return result.success
-                ? res.json({ success: true, paymentId: result.data })
-                : res.status(400).json({ error: result.error });
-
+            const result = await PaymentReducer.createRemidiesOrder(req.user.userId, orderId);
+            return result.success ? res.json(result.data) : res.status(400).json({ error: result.error });
         } catch {
-            res.status(500).json({ error: "Free enrollment failed" });
+            res.status(500).json({ error: "Remidies order payment creation failed" });
+        }
+    }
+
+    static async verifyRemidiesPayment(req: AuthRequest, res: Response) {
+        if (!req.user) return res.status(401).json({ error: "Unauthorized" });
+        try {
+            const { razorpay_order_id, razorpay_payment_id, razorpay_signature, orderId } = req.body;
+            if (!razorpay_order_id || !razorpay_payment_id || !razorpay_signature || !orderId)
+                return res.status(400).json({ error: "Incomplete payment details" });
+
+            const result = await PaymentReducer.verifyRemidiesPayment(
+                req.user.userId, orderId, razorpay_order_id, razorpay_payment_id, razorpay_signature
+            );
+            return result.success ? res.json(result.data) : res.status(400).json({ error: result.error });
+        } catch {
+            res.status(500).json({ error: "Remidies payment verification failed" });
+        }
+    }
+
+    // --- Admin Methods ---
+
+    static async getAllCoursePayments(req: AuthRequest, res: Response) {
+        try {
+            const result = await PaymentReducer.getAllCoursePayments();
+            return result.success ? res.json(result.data) : res.status(400).json({ error: result.error });
+        } catch {
+            res.status(500).json({ error: "Failed to fetch course payments" });
+        }
+    }
+
+    static async getAllRemidiesPayments(req: AuthRequest, res: Response) {
+        try {
+            const result = await PaymentReducer.getAllRemidiesPayments();
+            return result.success ? res.json(result.data) : res.status(400).json({ error: result.error });
+        } catch {
+            res.status(500).json({ error: "Failed to fetch remedies payments" });
         }
     }
 
     static async getAllPayments(req: AuthRequest, res: Response) {
         try {
-            const result = await PaymentReducer.getAllPayments();
-            return result.success
-                ? res.json(result.data)
-                : res.status(400).json({ error: result.error });
+            const result = await PaymentReducer.getCentralizedPayments();
+            return result.success ? res.json(result.data) : res.status(400).json({ error: result.error });
         } catch {
-            res.status(500).json({ error: "Failed to fetch payments" });
+            res.status(500).json({ error: "Failed to fetch centralized payments" });
         }
     }
 
-    // -------------------------------------------------------------------------
-    //  New Methods
-    // -------------------------------------------------------------------------
+    // --- Student Methods ---
 
     static async getCoursePaymentPlan(req: AuthRequest, res: Response) {
         try {
