@@ -28,28 +28,48 @@ export class InstructorIntent {
                 instructorId: z.string(),
                 s3Key: z.string().optional(),
                 s3Bucket: z.string().optional(),
+                accessDurationDays: z.number().int().positive().optional().nullable(),
+                paymentMode: z.enum(['INSTALLMENT', 'FULL_PAYMENT']).optional().default('INSTALLMENT'),
                 paymentPlans: z.array(z.object({
                     stageName: z.string(),
+                    description: z.string().optional(),
                     amount: z.number().positive(),
                     dueAfterDays: z.number().int().min(0).default(0),
-                    orderIndex: z.number().int().min(0)
+                    orderIndex: z.number().int().min(0),
+                    startDate: z.coerce.date().optional().nullable(),
+                    endDate: z.coerce.date().optional().nullable()
                 })).optional().default([])
             });
             const data = schema.parse(req.body);
 
+            // Calculate total price from payment plans if they exist
+            const calculatedPrice = data.paymentPlans && data.paymentPlans.length > 0
+                ? data.paymentPlans.reduce((sum, p) => sum + p.amount, 0).toString()
+                : data.price;
+
             const course = await prisma.course.create({
                 data: {
                     title: data.title,
-                    description: data.description,
-                    price: data.price,
-                    thumbnail: data.s3Key ? `s3://${data.s3Bucket || process.env.AWS_BUCKET_NAME}/${data.s3Key}` : null,
-                    s3Key: data.s3Key,
-                    s3Bucket: data.s3Bucket || process.env.AWS_BUCKET_NAME,
+                    description: data.description ?? undefined,
+                    price: calculatedPrice,
+                    thumbnail: data.s3Key ? `s3://${data.s3Bucket || process.env.AWS_BUCKET_NAME}/${data.s3Key}` : undefined,
+                    s3Key: data.s3Key ?? undefined,
+                    s3Bucket: data.s3Bucket || process.env.AWS_BUCKET_NAME || undefined,
                     mediaType: 'image',
                     instructorId: data.instructorId,
                     published: true,
+                    accessDurationDays: data.accessDurationDays ?? undefined,
+                    paymentMode: data.paymentMode,
                     paymentPlans: {
-                        create: data.paymentPlans
+                        create: data.paymentPlans.map(p => ({
+                            stageName: p.stageName,
+                            description: p.description ?? undefined,
+                            amount: p.amount,
+                            dueAfterDays: p.dueAfterDays,
+                            orderIndex: p.orderIndex,
+                            startDate: p.startDate ?? undefined,
+                            endDate: p.endDate ?? undefined
+                        }))
                     }
                 },
                 include: {
@@ -60,8 +80,15 @@ export class InstructorIntent {
             logger.info('InstructorIntent.createCourse: Course created successfully', { courseId: course.id });
             res.status(201).json({ success: true, data: course });
         } catch (error: any) {
-            logger.error('InstructorIntent.createCourse: Failed to create course', { error });
-            res.status(400).json({ error: 'Failed to create course', details: error instanceof z.ZodError ? error.issues : error.message });
+            logger.error('InstructorIntent.createCourse: Failed to create course', { 
+                message: error.message,
+                stack: error.stack,
+                error 
+            });
+            res.status(400).json({ 
+                error: 'Failed to create course', 
+                details: error instanceof z.ZodError ? error.issues : error.message 
+            });
         }
     }
 
@@ -81,6 +108,9 @@ export class InstructorIntent {
                         }
                     },
                     courseResources: true,
+                    paymentPlans: {
+                        orderBy: { orderIndex: 'asc' }
+                    },
                     liveClasses: {
                         orderBy: { scheduledAt: 'asc' }
                     }
@@ -146,7 +176,16 @@ export class InstructorIntent {
                 orderBy: { createdAt: 'desc' }
             });
 
-            const students = enrollments.map(e => ({ id: e.user.id, name: e.user.name, email: e.user.email, enrolledAt: e.createdAt }));
+            const students = enrollments.map(e => ({
+                id: e.user.id,
+                name: e.user.name,
+                email: e.user.email,
+                phoneNumber: e.user.phoneNumber,
+                enrolledAt: e.createdAt,
+                expiresAt: e.expiresAt,
+                status: e.status,
+                serialNumber: e.serialNumber
+            }));
             const count = students.length;
             res.json({ success: true, data: { students, count } });
         } catch (error) {
@@ -375,20 +414,8 @@ export class InstructorIntent {
             if (!course) {
                 return res.status(404).json({ error: 'Course not found' });
             }
-            // 1. Delete Progress (Cascade from lectures)
-            // We need to find all lecture IDs first
-            const lectureIds: string[] = [];
-            course.sections.forEach(s => s.lectures.forEach(l => lectureIds.push(l.id)));
-
-            if (lectureIds.length > 0) {
-                await prisma.progress.deleteMany({ where: { lectureId: { in: lectureIds } } });
-            }
-
-            // 2. Delete Payments
-            await prisma.payment.deleteMany({ where: { courseId } });
-
-            // 3. Delete Enrollments
-            await prisma.enrollment.deleteMany({ where: { courseId } });
+            // 1. Delete Progress, Payments, Enrollments, Sections, Lectures, PaymentPlans, Resources
+            // These are now handled by Prisma Cascade in schema.prisma
 
             // Remove courseId from User.enrolledCourseIds array
             try {
@@ -407,32 +434,29 @@ export class InstructorIntent {
                 // Non-blocking, continue with course deletion
             }
 
-            // 4. Delete Course Resources (DB + S3)
+            // 2. Delete Course Resources from S3
             const { deleteObject } = await import('../core/s3Service');
             for (const resource of course.courseResources) {
                 if (resource.s3Key) {
                     await deleteObject(resource.s3Key, resource.s3Bucket || undefined);
                 }
             }
-            await prisma.courseResource.deleteMany({ where: { courseId } });
 
-            // 5. Delete Lectures & Sections (Videos from S3)
+            // 3. Delete Lecture Videos from S3
             for (const section of course.sections) {
                 for (const lecture of section.lectures) {
                     if (lecture.s3Key) {
                         await deleteObject(lecture.s3Key, lecture.s3Bucket || undefined);
                     }
                 }
-                await prisma.lecture.deleteMany({ where: { sectionId: section.id } });
-                await prisma.section.delete({ where: { id: section.id } });
             }
 
-            // 6. Delete Course Thumbnail from S3
+            // 4. Delete Course Thumbnail from S3
             if (course.s3Key) {
                 await deleteObject(course.s3Key, course.s3Bucket || undefined);
             }
 
-            // 7. Delete Course
+            // 5. Delete Course (Prisma will cascade delete other related DB records)
             await prisma.course.delete({ where: { id: courseId } });
 
             res.json({ success: true, message: 'Course and all related data/assets deleted successfully' });
@@ -564,12 +588,17 @@ export class InstructorIntent {
                 courseResources: z.array(resourceSchema).optional(),
                 resources: z.array(resourceSchema).optional(), // Alias for frontend compatibility
                 published: z.boolean().optional(),
+                accessDurationDays: z.number().int().positive().optional().nullable(),
+                paymentMode: z.enum(['INSTALLMENT', 'FULL_PAYMENT']).optional(),
                 paymentPlans: z.array(z.object({
                     id: z.string().optional(),
                     stageName: z.string(),
+                    description: z.string().optional(),
                     amount: z.number().positive(),
                     dueAfterDays: z.number().int().min(0).default(0),
-                    orderIndex: z.number().int().min(0)
+                    orderIndex: z.number().int().min(0),
+                    startDate: z.coerce.date().optional().nullable(),
+                    endDate: z.coerce.date().optional().nullable()
                 })).optional(),
             });
 
@@ -582,6 +611,8 @@ export class InstructorIntent {
                 if (data.description !== undefined) courseUpdateIs.description = data.description;
                 if (data.price) courseUpdateIs.price = data.price;
                 if (data.published !== undefined) courseUpdateIs.published = data.published;
+                if (data.accessDurationDays !== undefined) courseUpdateIs.accessDurationDays = data.accessDurationDays;
+                if (data.paymentMode) courseUpdateIs.paymentMode = data.paymentMode;
                 if (data.s3Key) {
                     courseUpdateIs.s3Key = data.s3Key;
                     courseUpdateIs.s3Bucket = data.s3Bucket || process.env.AWS_BUCKET_NAME;
@@ -597,7 +628,7 @@ export class InstructorIntent {
                     });
                 }
 
-                // 1.5 Sync Payment Plans
+                // 1.5 Sync Payment Plans (now including dates)
                 if (data.paymentPlans) {
                     const incomingPlanIds = data.paymentPlans.map(p => p.id).filter(Boolean) as string[];
                     // Delete removed plans
@@ -605,13 +636,18 @@ export class InstructorIntent {
                         where: { courseId, id: { notIn: incomingPlanIds } }
                     });
 
+                    let totalAmount = 0;
                     for (const plan of data.paymentPlans) {
+                        totalAmount += plan.amount;
                         const planPayload = {
                             courseId,
                             stageName: plan.stageName,
+                            description: plan.description ?? undefined,
                             amount: plan.amount,
                             dueAfterDays: plan.dueAfterDays,
-                            orderIndex: plan.orderIndex
+                            orderIndex: plan.orderIndex,
+                            startDate: plan.startDate ?? undefined,
+                            endDate: plan.endDate ?? undefined
                         };
 
                         if (plan.id) {
@@ -625,6 +661,12 @@ export class InstructorIntent {
                             });
                         }
                     }
+
+                    // Update course price to the sum of installments
+                    await tx.course.update({
+                        where: { id: courseId },
+                        data: { price: totalAmount.toString() }
+                    });
                 }
 
                 // 2. Resources (Full Sync)
@@ -848,6 +890,9 @@ export class InstructorIntent {
                         }
                     },
                     courseResources: true,
+                    paymentPlans: {
+                        orderBy: { orderIndex: 'asc' }
+                    },
                     liveClasses: {
                         orderBy: { scheduledAt: 'asc' }
                     }

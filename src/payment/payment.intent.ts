@@ -138,4 +138,28 @@ export class PaymentIntent {
             res.status(500).json({ error: "Failed to initiate installment payment" });
         }
     }
+
+    static async getPaymentApis(req: any, res: Response) {
+        const apis = {
+            student: [
+                { method: "POST", path: "/api/payment/course/order", description: "Create Razorpay order for course enrollment (Batch-aware)" },
+                { method: "POST", path: "/api/payment/course/verify", description: "Verify Razorpay payment and enroll student" },
+                { method: "GET", path: "/api/payment/course/:courseId/plan", description: "Get available payment plans for a course" },
+                { method: "GET", path: "/api/payment/course/:courseId/my-payments", description: "Get student's payment history for a course" },
+                { method: "POST", path: "/api/payment/course/installment/:paymentId/pay", description: "Pay a pending course installment" },
+                { method: "POST", path: "/api/payment/remidies/order", description: "Create order for products" },
+                { method: "POST", path: "/api/payment/remidies/verify", description: "Verify product payment" }
+            ],
+            admin: [
+                { method: "GET", path: "/api/payment/admin/all", description: "Unified view of all payments" },
+                { method: "GET", path: "/api/payment/admin/course-payments", description: "List all course enrollments" },
+                { method: "GET", path: "/api/payment/admin/remidies-payments", description: "List all product sales" }
+            ],
+            instructor: [
+                { method: "POST", path: "/api/instructor/courses", description: "Create course with enrollment windows" },
+                { method: "PUT", path: "/api/instructor/courses/:courseId", description: "Update enrollment windows and fees" }
+            ]
+        };
+        res.json({ success: true, data: apis });
+    }
 }

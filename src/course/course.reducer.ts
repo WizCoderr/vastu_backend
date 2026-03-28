@@ -5,10 +5,8 @@ import { CourseDto } from './course.dto';
 export class CourseReducer {
     static async listCourses(): Promise<Result<CourseDto[]>> {
         const courses = await prisma.course.findMany({
-            where: { 
-                published: true,
-                isVisible: true 
-            },
+            where: { isVisible: true },
+            orderBy: { id: 'desc' },
             include: {
                 sections: {
                     include: {
@@ -36,60 +34,77 @@ export class CourseReducer {
         const now = new Date();
 
         // Map Decimal to number for DTO & Sign URLs
-        const dtos = await Promise.all(courses.map(async (c) => ({
-            ...c,
-            price: Number(c.price),
-            thumbnail: c.s3Key ? await getDirectS3Url(c.s3Key, c.s3Bucket || undefined).catch(() => c.thumbnail) : c.thumbnail,
-            // Only show payment plans if not expired
-            paymentPlans: (c.endDate && now > c.endDate) ? [] : c.paymentPlans,
-            // number of students enrolled
-            studentCount: await prisma.enrollment.count({ where: { courseId: c.id } }),
-            sections: await Promise.all(c.sections.map(async (s) => ({
-                id: s.id,
-                title: s.title,
-                lectures: await Promise.all(s.lectures.map(async (l) => ({
-                    id: l.id,
-                    title: l.title,
-                    videoUrl: l.s3Key ? await getPresignedReadUrl(l.s3Key, l.s3Bucket || undefined).catch(() => l.videoUrl) : l.videoUrl,
-                    videoProvider: l.videoProvider
+        const dtos = await Promise.all(courses.map(async (c) => {
+            // Find active payment plan (one that has dates and covers 'now')
+            const activePaymentPlan = c.paymentPlans.find(p => 
+                p.startDate && p.endDate && now >= p.startDate && now <= p.endDate
+            );
+            
+            return {
+                id: c.id,
+                title: c.title,
+                description: c.description,
+                price: Number(c.price),
+                instructorId: c.instructorId,
+                thumbnail: c.s3Key ? await getDirectS3Url(c.s3Key, c.s3Bucket || undefined).catch(() => c.thumbnail) : c.thumbnail,
+                // Only show payment plans if not expired
+                paymentPlans: (c.endDate && now > c.endDate) ? [] : c.paymentPlans,
+                // number of students enrolled
+                studentCount: await prisma.enrollment.count({ where: { courseId: c.id } }),
+                activePaymentPlan: activePaymentPlan || null,
+                sections: await Promise.all(c.sections.map(async (s) => ({
+                    id: s.id,
+                    title: s.title,
+                    lectures: await Promise.all(s.lectures.map(async (l) => ({
+                        id: l.id,
+                        title: l.title,
+                        videoUrl: l.s3Key ? await getPresignedReadUrl(l.s3Key, l.s3Bucket || undefined).catch(() => l.videoUrl) : l.videoUrl,
+                        videoProvider: l.videoProvider
+                    }))),
+                    liveClasses: s.liveClasses?.map(lc => ({
+                        id: lc.id,
+                        title: lc.title,
+                        description: lc.description,
+                        scheduledAt: lc.scheduledAt,
+                        durationMinutes: lc.durationMinutes,
+                        status: lc.status,
+                        meetingUrl: lc.meetingUrl,
+                        sectionId: lc.sectionId
+                    }))
                 }))),
-                liveClasses: s.liveClasses?.map(lc => ({
+                resources: await Promise.all(c.courseResources
+                    .map(async (r) => ({
+                        id: r.id,
+                        title: r.title,
+                        type: r.type,
+                        url: r.s3Key ? await getPresignedReadUrl(r.s3Key, r.s3Bucket || undefined).catch(() => '') : ''
+                    }))
+                ),
+                liveClasses: c.liveClasses ? c.liveClasses.map(lc => ({
                     id: lc.id,
                     title: lc.title,
                     description: lc.description,
                     scheduledAt: lc.scheduledAt,
                     durationMinutes: lc.durationMinutes,
                     status: lc.status,
-                    meetingUrl: lc.meetingUrl,
-                    sectionId: lc.sectionId
-                }))
-            }))),
-            resources: await Promise.all(c.courseResources
-                .filter(r => r.type === 'FREE')
-                .map(async (r) => ({
-                    id: r.id,
-                    title: r.title,
-                    type: r.type,
-                    url: r.s3Key ? await getPresignedReadUrl(r.s3Key, r.s3Bucket || undefined).catch(() => '') : ''
-                }))
-            ),
-            liveClasses: c.liveClasses ? c.liveClasses.map(lc => ({
-                id: lc.id,
-                title: lc.title,
-                description: lc.description,
-                scheduledAt: lc.scheduledAt,
-                durationMinutes: lc.durationMinutes,
-                status: lc.status,
-                meetingUrl: lc.meetingUrl
-            })) : undefined
-        })));
+                    meetingUrl: lc.meetingUrl
+                })) : undefined
+            };
+        }));
 
         return Result.ok(dtos);
     }
 
     static async listEnrolledCourses(userId: string): Promise<Result<CourseDto[]>> {
+        const now = new Date();
         const enrollments = await prisma.enrollment.findMany({
-            where: { userId },
+            where: { 
+                userId,
+                OR: [
+                    { expiresAt: null },
+                    { expiresAt: { gt: now } }
+                ]
+            },
             include: {
                 course: {
                     include: {
@@ -116,55 +131,59 @@ export class CourseReducer {
             },
         });
 
-        const courses = enrollments.map(e => e.course);
-
-        const { getPresignedReadUrl, getDirectS3Url } = await import('../core/s3Service');
-
         // Map Decimal to number for DTO & Sign URLs
-        const dtos = await Promise.all(courses.map(async (c) => ({
-            ...c,
-            price: Number(c.price),
-            thumbnail: c.s3Key ? await getDirectS3Url(c.s3Key, c.s3Bucket || undefined).catch(() => c.thumbnail) : c.thumbnail,
-            // number of students enrolled
-            studentCount: await prisma.enrollment.count({ where: { courseId: c.id } }),
-            sections: await Promise.all(c.sections.map(async (s) => ({
-                id: s.id,
-                title: s.title,
-                lectures: await Promise.all(s.lectures.map(async (l) => ({
-                    id: l.id,
-                    title: l.title,
-                    videoUrl: l.s3Key ? await getPresignedReadUrl(l.s3Key, l.s3Bucket || undefined).catch(() => l.videoUrl) : l.videoUrl,
-                    videoProvider: l.videoProvider
+        const dtos = await Promise.all(enrollments.map(async (e) => {
+            const c = e.course;
+            return {
+                id: c.id,
+                title: c.title,
+                description: c.description,
+                price: Number(c.price),
+                instructorId: c.instructorId,
+                thumbnail: c.s3Key ? await getDirectS3Url(c.s3Key, c.s3Bucket || undefined).catch(() => c.thumbnail) : c.thumbnail,
+                isEnrolled: true,
+                serialNumber: e.serialNumber,
+                // number of students enrolled
+                studentCount: await prisma.enrollment.count({ where: { courseId: c.id } }),
+                sections: await Promise.all(c.sections.map(async (s) => ({
+                    id: s.id,
+                    title: s.title,
+                    lectures: await Promise.all(s.lectures.map(async (l) => ({
+                        id: l.id,
+                        title: l.title,
+                        videoUrl: l.s3Key ? await getPresignedReadUrl(l.s3Key, l.s3Bucket || undefined).catch(() => l.videoUrl) : l.videoUrl,
+                        videoProvider: l.videoProvider
+                    }))),
+                    liveClasses: s.liveClasses?.map(lc => ({
+                        id: lc.id,
+                        title: lc.title,
+                        description: lc.description,
+                        scheduledAt: lc.scheduledAt,
+                        durationMinutes: lc.durationMinutes,
+                        status: lc.status,
+                        meetingUrl: lc.meetingUrl,
+                        sectionId: lc.sectionId
+                    }))
                 }))),
-                liveClasses: s.liveClasses?.map(lc => ({
+                resources: await Promise.all(c.courseResources
+                    .map(async (r) => ({
+                        id: r.id,
+                        title: r.title,
+                        type: r.type,
+                        url: r.s3Key ? await getPresignedReadUrl(r.s3Key, r.s3Bucket || undefined).catch(() => '') : ''
+                    }))
+                ),
+                liveClasses: c.liveClasses ? c.liveClasses.map(lc => ({
                     id: lc.id,
                     title: lc.title,
                     description: lc.description,
                     scheduledAt: lc.scheduledAt,
                     durationMinutes: lc.durationMinutes,
                     status: lc.status,
-                    meetingUrl: lc.meetingUrl,
-                    sectionId: lc.sectionId
-                }))
-            }))),
-            resources: await Promise.all(c.courseResources
-                .map(async (r) => ({
-                    id: r.id,
-                    title: r.title,
-                    type: r.type,
-                    url: r.s3Key ? await getPresignedReadUrl(r.s3Key, r.s3Bucket || undefined).catch(() => '') : ''
-                }))
-            ),
-            liveClasses: c.liveClasses ? c.liveClasses.map(lc => ({
-                id: lc.id,
-                title: lc.title,
-                description: lc.description,
-                scheduledAt: lc.scheduledAt,
-                durationMinutes: lc.durationMinutes,
-                status: lc.status,
-                meetingUrl: lc.meetingUrl
-            })) : undefined
-        })));
+                    meetingUrl: lc.meetingUrl
+                })) : undefined
+            };
+        }));
 
         return Result.ok(dtos);
     }
@@ -183,13 +202,18 @@ export class CourseReducer {
                     }
                 },
                 courseResources: true,
-                paymentPlans: true
+                paymentPlans: {
+                    orderBy: { orderIndex: 'asc' }
+                }
             }
         });
 
         if (!course) return Result.fail('Course not found');
 
         const now = new Date();
+        const activePaymentPlan = course.paymentPlans.find(p => 
+            p.startDate && p.endDate && now >= p.startDate && now <= p.endDate
+        );
         const paymentPlans = (course.endDate && now > course.endDate) ? [] : course.paymentPlans;
 
         let enrollment = null;
@@ -243,36 +267,37 @@ export class CourseReducer {
             };
         }));
 
-        // Count the students enrolled in this course
-        // Count the students enrolled in this course
         const studentCount = await prisma.enrollment.count({ where: { courseId } });
 
-        // Fetch live classes for ALL users (Public & Authenticated)
         const liveClasses = await prisma.liveClass.findMany({
             where: {
                 courseId: courseId,
-                status: { in: ['SCHEDULED', 'LIVE'] }, // Only future/live classes
-                scheduledAt: { gte: new Date() } // Optional: ensure they are in the future
+                status: { in: ['SCHEDULED', 'LIVE'] },
+                scheduledAt: { gte: new Date() }
             },
             orderBy: { scheduledAt: 'asc' },
             take: 5
         });
 
         return Result.ok({
-            ...course,
+            id: course.id,
+            title: course.title,
+            description: course.description,
             price: Number(course.price),
+            instructorId: course.instructorId,
             thumbnail: signedThumbnail,
             isEnrolled: !!enrollment,
+            serialNumber: enrollment?.serialNumber || null,
             studentCount,
             sections: sectionsWithSignedUrls,
             resources,
             paymentPlans,
+            activePaymentPlan: activePaymentPlan || null,
             liveClasses: liveClasses.length > 0 ? liveClasses : undefined
         });
     }
 
     static async getCurriculum(courseId: string, userId: string): Promise<Result<any>> {
-        // 1. Check Enrollment
         const enrollment = await prisma.enrollment.findUnique({
             where: {
                 userId_courseId: { userId, courseId },
@@ -283,7 +308,6 @@ export class CourseReducer {
             return Result.fail('Access denied: You are not enrolled in this course');
         }
 
-        // 2. Fetch Curriculum
         const sections = await prisma.section.findMany({
             where: { courseId },
             include: {
@@ -309,6 +333,7 @@ export class CourseReducer {
 
         return Result.ok(sectionsWithSignedUrls);
     }
+
     static async validateLectureAccess(lectureId: string, userId: string, role: string): Promise<Result<any>> {
         const lecture = await prisma.lecture.findUnique({
             where: { id: lectureId },
@@ -319,7 +344,7 @@ export class CourseReducer {
             return Result.fail('Lecture not found');
         }
 
-        const enrollments = lecture.section.course.enrollments;
+        const enrollment = enrollments[0];
         const isInstructor = lecture.section.course.instructorId === userId;
         const isAdmin = role === 'admin';
         const courseEndDate = lecture.section.course.endDate;
@@ -331,12 +356,17 @@ export class CourseReducer {
 
         if (enrollments.length > 0) {
             const enrollment = enrollments[0];
+            
+            // Check for explicit expiration
+            if (enrollment.expiresAt && now > enrollment.expiresAt && !isAdmin && !isInstructor) {
+                return Result.fail('Access denied: Your access to this course has expired.');
+            }
+
             if (enrollment.status === 'PAYMENT_DUE') {
                  return Result.fail('Access restricted: Payment overdue. Please complete your pending payment.');
             }
         }
 
-        // Check for course expiry
         if (courseEndDate && now > courseEndDate && !isAdmin && !isInstructor) {
             return Result.fail('Access denied: This course has expired.');
         }

@@ -51,7 +51,9 @@ export class PaymentReducer {
     static async createRazorpayOrder(userId: string, courseId: string) {
         const course = await prisma.course.findUnique({ 
             where: { id: courseId },
-            include: { paymentPlans: { orderBy: { orderIndex: 'asc' } } }
+            include: { 
+                paymentPlans: { orderBy: { orderIndex: 'asc' } }
+            }
         });
 
         if (!course) return Result.fail("Course not found");
@@ -60,18 +62,44 @@ export class PaymentReducer {
         const exists = await EnrollmentRepository.findEnrollment(userId, courseId);
         if (exists) return Result.fail("Already enrolled");
 
+        const now = new Date();
+        const isCourseCompleted = course.endDate && now > course.endDate;
+        const useFullPayment = isCourseCompleted || course.paymentMode === 'FULL_PAYMENT';
+
         try {
             const { createRazorpayOrder } = await import("../core/razorpayService");
 
-            // We MUST have at least one payment plan (the first installment)
-            if (course.paymentPlans.length === 0) {
-                return Result.fail("No payment plan configured for this course. Please contact administrator.");
-            }
+            let amountToPay: number;
+            let stageName: string;
+            let planId: string | null = null;
 
-            const firstStage = course.paymentPlans[0]; 
-            const amountToPay = firstStage.amount;
-            const stageName = firstStage.stageName;
-            const planId = firstStage.id;
+            if (useFullPayment) {
+                amountToPay = Number(course.price);
+                stageName = "Full Payment";
+            } else {
+                // Find if there are any date-restricted plans
+                const dateRestrictedPlans = course.paymentPlans.filter(p => p.startDate && p.endDate);
+                const activePlan = dateRestrictedPlans.find(p => now >= p.startDate! && now <= p.endDate!);
+
+                if (dateRestrictedPlans.length > 0 && !activePlan) {
+                    return Result.fail("Enrollment is currently closed for this course.");
+                }
+
+                if (activePlan) {
+                    amountToPay = activePlan.amount;
+                    stageName = activePlan.stageName;
+                    planId = activePlan.id;
+                } else {
+                    // Fallback to first payment plan if no date restrictions exist
+                    if (course.paymentPlans.length === 0) {
+                        return Result.fail("No payment plan configured for this course. Please contact administrator.");
+                    }
+                    const firstStage = course.paymentPlans[0]; 
+                    amountToPay = firstStage.amount;
+                    stageName = firstStage.stageName;
+                    planId = firstStage.id;
+                }
+            }
 
             const shortUser = userId.substring(0, 8);
             const receipt = `rcpt_${shortUser}_${Date.now().toString().slice(-6)}`;
@@ -97,7 +125,7 @@ export class PaymentReducer {
                 amount: order.amount, 
                 currency: order.currency,
                 keyId: process.env.RAZORPAY_KEY_ID,
-                isInstallment: true,
+                isInstallment: !useFullPayment,
                 stageName: stageName
             });
 

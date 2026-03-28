@@ -1,5 +1,5 @@
 generator client {
-  provider = "prisma-client"
+  provider = "prisma-client-js"
   output   = "../src/generated/prisma"
 }
 
@@ -39,6 +39,11 @@ model User {
 // COURSE (LMS)
 //////////////////////////////////////////////////////
 
+enum PaymentMode {
+  INSTALLMENT
+  FULL_PAYMENT
+}
+
 model Course {
   id           String  @id @default(auto()) @map("_id") @db.ObjectId
   title        String
@@ -47,22 +52,41 @@ model Course {
   price        String
   published    Boolean @default(false)
   isVisible    Boolean @default(true)
-  instructorId String
+  instructorId String @db.ObjectId
+  paymentMode  PaymentMode @default(INSTALLMENT)
 
   startDate    DateTime?
   endDate      DateTime?
+  accessDurationDays Int?    // New: Duration of access in days after enrollment
 
   s3Key     String?
   s3Bucket  String?
   mediaType String?
 
-  sections        Section[]
-  enrollments     Enrollment[]
-  payments        Payment[]
-  paymentPlans    CoursePaymentPlan[]
-  studentPayments StudentPayment[]
-  courseResources CourseResource[]
-  liveClasses     LiveClass[]
+  sections          Section[]
+  enrollments       Enrollment[]
+  payments          Payment[]
+  paymentPlans      CoursePaymentPlan[]
+  studentPayments   StudentPayment[]
+  courseResources   CourseResource[]
+  liveClasses       LiveClass[]
+}
+
+model CoursePaymentPlan {
+  id             String @id @default(auto()) @map("_id") @db.ObjectId
+  courseId       String @db.ObjectId
+  stageName      String
+  description    String?
+  amount         Float
+  dueAfterDays   Int    @default(0)
+  orderIndex     Int
+
+  startDate      DateTime?
+  endDate        DateTime?
+
+  course         Course @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  
+  @@index([courseId])
 }
 
 enum ResourceType {
@@ -80,7 +104,7 @@ model CourseResource {
   createdAt DateTime     @default(now())
   updatedAt DateTime     @updatedAt
 
-  course    Course       @relation(fields: [courseId], references: [id])
+  course         Course @relation(fields: [courseId], references: [id], onDelete: Cascade)
 }
 
 model Section {
@@ -88,7 +112,7 @@ model Section {
   title     String
   courseId  String    @db.ObjectId
 
-  course    Course    @relation(fields: [courseId], references: [id])
+  course    Course    @relation(fields: [courseId], references: [id], onDelete: Cascade)
   lectures  Lecture[]
   liveClasses LiveClass[]
 }
@@ -99,7 +123,7 @@ model Lecture {
   videoUrl  String
   sectionId String     @db.ObjectId
 
-  section   Section    @relation(fields: [sectionId], references: [id])
+  section   Section    @relation(fields: [sectionId], references: [id], onDelete: Cascade)
   progress  Progress[]
 
   videoProvider String? @default("cloudinary")
@@ -118,9 +142,10 @@ model Enrollment {
   serialNumber String?
   status    EnrollmentStatus @default(ACTIVE)
   createdAt DateTime @default(now())
+  expiresAt DateTime? // New: When this specific user's access expires
 
-  user   User   @relation(fields: [userId], references: [id])
-  course Course @relation(fields: [courseId], references: [id])
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  course Course @relation(fields: [courseId], references: [id], onDelete: Cascade)
 
   @@unique([userId, courseId])
 }
@@ -130,19 +155,6 @@ enum EnrollmentStatus {
   PAYMENT_DUE
   COMPLETED
   CANCELLED
-}
-
-model CoursePaymentPlan {
-  id             String @id @default(auto()) @map("_id") @db.ObjectId
-  courseId       String @db.ObjectId
-  stageName      String
-  amount         Float
-  dueAfterDays   Int    @default(0)
-  orderIndex     Int
-
-  course         Course @relation(fields: [courseId], references: [id])
-  
-  @@index([courseId])
 }
 
 model StudentPayment {
@@ -164,8 +176,8 @@ model StudentPayment {
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
-  user            User     @relation(fields: [userId], references: [id])
-  course          Course   @relation(fields: [courseId], references: [id])
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  course          Course   @relation(fields: [courseId], references: [id], onDelete: Cascade)
   
   @@index([userId])
   @@index([courseId])
@@ -185,8 +197,8 @@ model Progress {
   lectureId String  @db.ObjectId
   completed Boolean @default(false)
 
-  user    User    @relation(fields: [userId], references: [id])
-  lecture Lecture @relation(fields: [lectureId], references: [id])
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  lecture Lecture @relation(fields: [lectureId], references: [id], onDelete: Cascade)
 
   @@unique([userId, lectureId])
 }
@@ -214,17 +226,17 @@ enum PaymentProvider {
 model Payment {
   id        String   @id @default(auto()) @map("_id") @db.ObjectId
   userId    String   @db.ObjectId
-  user      User     @relation(fields: [userId], references: [id])
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   type      PaymentType
 
   // COURSE PAYMENT (1:1)
   courseId  String?  @unique @db.ObjectId
-  course    Course?  @relation(fields: [courseId], references: [id])
+  course    Course?  @relation(fields: [courseId], references: [id], onDelete: Cascade)
 
   // ORDER PAYMENT (1:1)
   orderId   String?  @unique @db.ObjectId
-  order     Order?   @relation(fields: [orderId], references: [id])
+  order     Order?   @relation(fields: [orderId], references: [id], onDelete: Cascade)
 
   amount    Float
   currency  String   @default("INR")
@@ -275,8 +287,8 @@ model LiveClass {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  course  Course  @relation(fields: [courseId], references: [id])
-  section Section? @relation(fields: [sectionId], references: [id])
+  course  Course  @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  section Section? @relation(fields: [sectionId], references: [id], onDelete: Cascade)
 
   @@index([courseId])
   @@index([scheduledAt])
@@ -294,7 +306,7 @@ model DeviceToken {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  user User @relation(fields: [userId], references: [id])
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([userId, token])
 }
@@ -312,7 +324,7 @@ model NotificationLog {
   error       String?
   createdAt   DateTime  @default(now())
 
-  user User @relation(fields: [userId], references: [id])
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
 }
@@ -343,7 +355,7 @@ model Product {
   isActive    Boolean  @default(true)
 
   categoryId  String   @db.ObjectId
-  category    Category @relation(fields: [categoryId], references: [id])
+  category    Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
 
   orderItems  OrderItem[]
   cartItems   CartItem[]
@@ -358,7 +370,7 @@ model Product {
 model Cart {
   id        String   @id @default(auto()) @map("_id") @db.ObjectId
   userId    String   @db.ObjectId
-  user      User     @relation(fields: [userId], references: [id])
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   items     CartItem[]
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -372,8 +384,8 @@ model CartItem {
   productId String   @db.ObjectId
   quantity  Int      @default(1)
 
-  cart      Cart     @relation(fields: [cartId], references: [id])
-  product   Product  @relation(fields: [productId], references: [id])
+  cart      Cart     @relation(fields: [cartId], references: [id], onDelete: Cascade)
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
 
   @@unique([cartId, productId])
 }
@@ -389,7 +401,7 @@ enum OrderStatus {
 model Order {
   id            String      @id @default(auto()) @map("_id") @db.ObjectId
   userId        String      @db.ObjectId
-  user          User        @relation(fields: [userId], references: [id])
+  user          User        @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   totalAmount   Float
   status        OrderStatus @default(PENDING)
@@ -419,8 +431,8 @@ model OrderItem {
   quantity  Int
   price     Float
 
-  order     Order   @relation(fields: [orderId], references: [id])
-  product   Product @relation(fields: [productId], references: [id])
+  order     Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  product   Product @relation(fields: [productId], references: [id], onDelete: Cascade)
 
   @@index([orderId])
 }

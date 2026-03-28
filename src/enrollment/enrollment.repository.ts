@@ -27,11 +27,24 @@ export class EnrollmentRepository {
         
         const serialNumber = nextSerial.toString().padStart(3, '0');
 
+        // Calculate expiresAt if course has accessDurationDays
+        const course = await prisma.course.findUnique({
+            where: { id: courseId },
+            select: { accessDurationDays: true }
+        });
+
+        let expiresAt: Date | null = null;
+        if (course?.accessDurationDays) {
+            expiresAt = new Date();
+            expiresAt.setDate(expiresAt.getDate() + course.accessDurationDays);
+        }
+
         const enrollment = await prisma.enrollment.create({
             data: {
                 userId,
                 courseId,
                 serialNumber,
+                expiresAt,
             },
         });
 

@@ -4,6 +4,9 @@ import { PaymentIntent } from "../payment/payment.intent";
 
 const router = Router();
 
+// API Discovery
+router.get("/", PaymentIntent.getPaymentApis);
+
 // =============================================================================
 //  COURSE PAYMENTS (STUDENT)
 // =============================================================================
