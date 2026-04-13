@@ -15,6 +15,57 @@ import {
   updateOrderStatusSchema,
   orderIdParamSchema,
 } from './remidies.validation';
+import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
+import { getDirectS3Url } from '../core/s3Service';
+import { MediaService } from '../core/mediaService';
+import fs from 'fs';
+import path from 'path';
+import logger from '../utils/logger';
+
+const s3Client = new S3Client({
+    region: process.env.AWS_REGION || 'us-east-1',
+    credentials: {
+        accessKeyId: process.env.AWS_ACCESS_KEY_ID || '',
+        secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY || ''
+    }
+});
+
+const signS3Url = async (s3Url: string | null | undefined): Promise<string | null | undefined> => {
+    if (!s3Url || !s3Url.startsWith('s3://')) return s3Url;
+    try {
+        const parts = s3Url.replace('s3://', '').split('/');
+        const bucket = parts[0];
+        const key = parts.slice(1).join('/');
+        return await getDirectS3Url(key, bucket);
+    } catch (error) {
+        logger.error('Failed to sign S3 URL', { s3Url, error });
+        return s3Url;
+    }
+};
+
+const handleImageUpload = async (req: any, folder: string) => {
+    if (!req.file) return null;
+
+    const inputPath = req.file.path;
+    const bucketName = process.env.AWS_BUCKET_NAME!;
+    const s3Key = `remidies/${folder}/${Date.now()}-${req.file.originalname}`;
+
+    try {
+        const fileBuffer = fs.readFileSync(inputPath);
+        await s3Client.send(new PutObjectCommand({
+            Bucket: bucketName,
+            Key: s3Key,
+            Body: fileBuffer,
+            ContentType: req.file.mimetype || 'image/jpeg'
+        }));
+        return `s3://${bucketName}/${s3Key}`;
+    } catch (error) {
+        logger.error('S3 upload failed for remedy image', { error });
+        throw error;
+    } finally {
+        await MediaService.cleanup(inputPath);
+    }
+};
 
 // ─────────────────────────────────────────────
 // CATEGORY
@@ -23,7 +74,11 @@ import {
 export const createCategory: RequestHandler = async (req: AuthRequest, res, next) => {
   try {
     const data = createCategorySchema.parse(req).body;
+    const s3Url = await handleImageUpload(req, 'categories');
+    if (s3Url) data.image = s3Url;
+
     const category = await intent.createCategory(data);
+    if (category.image) category.image = await signS3Url(category.image) || category.image;
     res.status(201).json({ success: true, data: category });
   } catch (error) { next(error); }
 };
@@ -32,7 +87,11 @@ export const updateCategory: RequestHandler = async (req: AuthRequest, res, next
   try {
     const { id } = categoryIdParamSchema.parse(req).params;
     const data = updateCategorySchema.parse(req).body;
+    const s3Url = await handleImageUpload(req, 'categories');
+    if (s3Url) data.image = s3Url;
+
     const category = await intent.updateCategory(id, data);
+    if (category.image) category.image = await signS3Url(category.image) || category.image;
     res.status(200).json({ success: true, data: category });
   } catch (error) { next(error); }
 };
@@ -48,7 +107,11 @@ export const deleteCategory: RequestHandler = async (req: AuthRequest, res, next
 export const getCategories: RequestHandler = async (_req, res, next) => {
   try {
     const categories = await intent.getAllCategories();
-    res.status(200).json({ success: true, data: categories });
+    const signedCategories = await Promise.all(categories.map(async (c) => ({
+        ...c,
+        image: await signS3Url(c.image) || c.image
+    })));
+    res.status(200).json({ success: true, data: signedCategories });
   } catch (error) { next(error); }
 };
 
@@ -59,7 +122,11 @@ export const getCategories: RequestHandler = async (_req, res, next) => {
 export const createProduct: RequestHandler = async (req: AuthRequest, res, next) => {
   try {
     const data = createProductSchema.parse(req).body;
+    const s3Url = await handleImageUpload(req, 'products');
+    if (s3Url) data.image = s3Url;
+
     const product = await intent.createProduct(data);
+    if (product.image) product.image = await signS3Url(product.image) || product.image;
     res.status(201).json({ success: true, data: product });
   } catch (error) { next(error); }
 };
@@ -68,7 +135,11 @@ export const updateProduct: RequestHandler = async (req: AuthRequest, res, next)
   try {
     const { id } = productIdParamSchema.parse(req).params;
     const data = updateProductSchema.parse(req).body;
+    const s3Url = await handleImageUpload(req, 'products');
+    if (s3Url) data.image = s3Url;
+
     const product = await intent.updateProduct(id, data);
+    if (product.image) product.image = await signS3Url(product.image) || product.image;
     res.status(200).json({ success: true, data: product });
   } catch (error) { next(error); }
 };
@@ -90,7 +161,11 @@ export const getProducts: RequestHandler = async (req, res, next) => {
       categoryId: query.categoryId,
       isActive: query.isActive,
     });
-    res.status(200).json({ success: true, ...result });
+    const signedProducts = await Promise.all(result.data.map(async (p) => ({
+        ...p,
+        image: await signS3Url(p.image) || p.image
+    })));
+    res.status(200).json({ success: true, data: signedProducts, meta: result.meta });
   } catch (error) { next(error); }
 };
 

@@ -131,6 +131,8 @@ export class CourseReducer {
             },
         });
 
+        const { getPresignedReadUrl, getDirectS3Url } = await import('../core/s3Service');
+
         // Map Decimal to number for DTO & Sign URLs
         const dtos = await Promise.all(enrollments.map(async (e) => {
             const c = e.course;
@@ -344,7 +346,7 @@ export class CourseReducer {
             return Result.fail('Lecture not found');
         }
 
-        const enrollment = enrollments[0];
+        const enrollments = lecture.section.course.enrollments;
         const isInstructor = lecture.section.course.instructorId === userId;
         const isAdmin = role === 'admin';
         const courseEndDate = lecture.section.course.endDate;

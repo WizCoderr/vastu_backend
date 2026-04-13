@@ -4,8 +4,7 @@ generator client {
 }
 
 datasource db {
-  provider = "mongodb"
-  url      = env("DATABASE_URL")
+  provider = "postgresql"
 }
 
 //////////////////////////////////////////////////////
@@ -13,13 +12,13 @@ datasource db {
 //////////////////////////////////////////////////////
 
 model User {
-  id        String   @id @default(auto()) @map("_id") @db.ObjectId
-  email     String   @unique
-  password  String
-  name      String?
-  role      String   @default("student")
+  id          String   @id @default(uuid())
+  email       String   @unique
+  password    String
+  name        String?
+  role        String   @default("student")
   phoneNumber String
-  createdAt DateTime @default(now())
+  createdAt   DateTime @default(now())
 
   enrollments      Enrollment[]
   progress         Progress[]
@@ -28,15 +27,14 @@ model User {
   deviceTokens     DeviceToken[]
   notificationLogs NotificationLog[]
 
-  // E-commerce
   cart   Cart?
   orders Order[]
 
-  enrolledCourseIds String[] @default([])
+  enrolledCourseIds String[]
 }
 
 //////////////////////////////////////////////////////
-// COURSE (LMS)
+// COURSE
 //////////////////////////////////////////////////////
 
 enum PaymentMode {
@@ -45,47 +43,47 @@ enum PaymentMode {
 }
 
 model Course {
-  id           String  @id @default(auto()) @map("_id") @db.ObjectId
+  id           String      @id @default(uuid())
   title        String
   description  String?
   thumbnail    String?
-  price        String
-  published    Boolean @default(false)
-  isVisible    Boolean @default(true)
-  instructorId String @db.ObjectId
+  price        Decimal     @db.Decimal(10, 2)
+  published    Boolean     @default(false)
+  isVisible    Boolean     @default(true)
+  instructorId String
   paymentMode  PaymentMode @default(INSTALLMENT)
 
-  startDate    DateTime?
-  endDate      DateTime?
-  accessDurationDays Int?    // New: Duration of access in days after enrollment
+  startDate          DateTime?
+  endDate            DateTime?
+  accessDurationDays Int?
 
   s3Key     String?
   s3Bucket  String?
   mediaType String?
 
-  sections          Section[]
-  enrollments       Enrollment[]
-  payments          Payment[]
-  paymentPlans      CoursePaymentPlan[]
-  studentPayments   StudentPayment[]
-  courseResources   CourseResource[]
-  liveClasses       LiveClass[]
+  sections        Section[]
+  enrollments     Enrollment[]
+  payments        Payment[]
+  paymentPlans    CoursePaymentPlan[]
+  studentPayments StudentPayment[]
+  courseResources CourseResource[]
+  liveClasses     LiveClass[]
 }
 
 model CoursePaymentPlan {
-  id             String @id @default(auto()) @map("_id") @db.ObjectId
-  courseId       String @db.ObjectId
-  stageName      String
-  description    String?
-  amount         Float
-  dueAfterDays   Int    @default(0)
-  orderIndex     Int
+  id           String  @id @default(uuid())
+  courseId     String
+  stageName    String
+  description  String?
+  amount       Decimal @db.Decimal(10, 2)
+  dueAfterDays Int     @default(0)
+  orderIndex   Int
 
-  startDate      DateTime?
-  endDate        DateTime?
+  startDate DateTime?
+  endDate   DateTime?
 
-  course         Course @relation(fields: [courseId], references: [id], onDelete: Cascade)
-  
+  course Course @relation(fields: [courseId], references: [id], onDelete: Cascade)
+
   @@index([courseId])
 }
 
@@ -95,8 +93,8 @@ enum ResourceType {
 }
 
 model CourseResource {
-  id        String       @id @default(auto()) @map("_id") @db.ObjectId
-  courseId  String       @db.ObjectId
+  id        String       @id @default(uuid())
+  courseId  String
   title     String
   s3Key     String
   s3Bucket  String
@@ -104,27 +102,27 @@ model CourseResource {
   createdAt DateTime     @default(now())
   updatedAt DateTime     @updatedAt
 
-  course         Course @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  course Course @relation(fields: [courseId], references: [id], onDelete: Cascade)
 }
 
 model Section {
-  id        String    @id @default(auto()) @map("_id") @db.ObjectId
-  title     String
-  courseId  String    @db.ObjectId
+  id       String @id @default(uuid())
+  title    String
+  courseId String
 
-  course    Course    @relation(fields: [courseId], references: [id], onDelete: Cascade)
-  lectures  Lecture[]
+  course      Course      @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  lectures    Lecture[]
   liveClasses LiveClass[]
 }
 
 model Lecture {
-  id        String     @id @default(auto()) @map("_id") @db.ObjectId
+  id        String @id @default(uuid())
   title     String
   videoUrl  String
-  sectionId String     @db.ObjectId
+  sectionId String
 
-  section   Section    @relation(fields: [sectionId], references: [id], onDelete: Cascade)
-  progress  Progress[]
+  section  Section    @relation(fields: [sectionId], references: [id], onDelete: Cascade)
+  progress Progress[]
 
   videoProvider String? @default("cloudinary")
   muxAssetId    String?
@@ -135,20 +133,9 @@ model Lecture {
   s3Bucket String?
 }
 
-model Enrollment {
-  id        String   @id @default(auto()) @map("_id") @db.ObjectId
-  userId    String   @db.ObjectId
-  courseId  String   @db.ObjectId
-  serialNumber String?
-  status    EnrollmentStatus @default(ACTIVE)
-  createdAt DateTime @default(now())
-  expiresAt DateTime? // New: When this specific user's access expires
-
-  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
-  course Course @relation(fields: [courseId], references: [id], onDelete: Cascade)
-
-  @@unique([userId, courseId])
-}
+//////////////////////////////////////////////////////
+// ENROLLMENT
+//////////////////////////////////////////////////////
 
 enum EnrollmentStatus {
   ACTIVE
@@ -157,32 +144,24 @@ enum EnrollmentStatus {
   CANCELLED
 }
 
-model StudentPayment {
-  id              String   @id @default(auto()) @map("_id") @db.ObjectId
-  userId          String   @db.ObjectId
-  courseId        String   @db.ObjectId
-  planId          String?  @db.ObjectId
-  stageName       String
-  amount          Float
-  
-  razorpayOrderId   String?
-  razorpayPaymentId String?
-  
-  status          StudentPaymentStatus @default(PENDING)
-  
-  dueDate         DateTime?
-  paidAt          DateTime?
-  
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+model Enrollment {
+  id           String           @id @default(uuid())
+  userId       String
+  courseId     String
+  serialNumber String?
+  status       EnrollmentStatus @default(ACTIVE)
+  createdAt    DateTime         @default(now())
+  expiresAt    DateTime?
 
-  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  course          Course   @relation(fields: [courseId], references: [id], onDelete: Cascade)
-  
-  @@index([userId])
-  @@index([courseId])
-  @@index([status])
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  course Course @relation(fields: [courseId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, courseId])
 }
+
+//////////////////////////////////////////////////////
+// STUDENT PAYMENTS
+//////////////////////////////////////////////////////
 
 enum StudentPaymentStatus {
   PENDING
@@ -191,10 +170,41 @@ enum StudentPaymentStatus {
   OVERDUE
 }
 
+model StudentPayment {
+  id        String  @id @default(uuid())
+  userId    String
+  courseId  String
+  planId    String?
+  stageName String
+  amount    Decimal @db.Decimal(10, 2)
+
+  razorpayOrderId   String?
+  razorpayPaymentId String?
+
+  status StudentPaymentStatus @default(PENDING)
+
+  dueDate DateTime?
+  paidAt  DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  course Course @relation(fields: [courseId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([courseId])
+  @@index([status])
+}
+
+//////////////////////////////////////////////////////
+// PROGRESS
+//////////////////////////////////////////////////////
+
 model Progress {
-  id        String  @id @default(auto()) @map("_id") @db.ObjectId
-  userId    String  @db.ObjectId
-  lectureId String  @db.ObjectId
+  id        String  @id @default(uuid())
+  userId    String
+  lectureId String
   completed Boolean @default(false)
 
   user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -204,7 +214,7 @@ model Progress {
 }
 
 //////////////////////////////////////////////////////
-// PAYMENT (UNIFIED LMS + ECOMMERCE)
+// PAYMENT
 //////////////////////////////////////////////////////
 
 enum PaymentStatus {
@@ -224,25 +234,23 @@ enum PaymentProvider {
 }
 
 model Payment {
-  id        String   @id @default(auto()) @map("_id") @db.ObjectId
-  userId    String   @db.ObjectId
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id     String @id @default(uuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  type      PaymentType
+  type PaymentType
 
-  // COURSE PAYMENT (1:1)
-  courseId  String?  @unique @db.ObjectId
-  course    Course?  @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  courseId String?
+  course   Course? @relation(fields: [courseId], references: [id])
 
-  // ORDER PAYMENT (1:1)
-  orderId   String?  @unique @db.ObjectId
-  order     Order?   @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  orderId String? @unique
+  order   Order?  @relation(fields: [orderId], references: [id])
 
-  amount    Float
-  currency  String   @default("INR")
+  amount   Decimal @db.Decimal(10, 2)
+  currency String  @default("INR")
 
-  status    PaymentStatus @default(PENDING)
-  provider  PaymentProvider
+  status   PaymentStatus   @default(PENDING)
+  provider PaymentProvider
 
   providerOrderId   String?
   providerPaymentId String?
@@ -269,17 +277,17 @@ enum LiveClassStatus {
 }
 
 model LiveClass {
-  id          String          @id @default(auto()) @map("_id") @db.ObjectId
-  courseId    String          @db.ObjectId
-  sectionId   String?         @db.ObjectId
+  id        String  @id @default(uuid())
+  courseId  String
+  sectionId String?
 
-  title       String
-  description String?
-  scheduledAt DateTime
-  durationMinutes Int @default(60)
-  meetingUrl  String
-  recordingUrl String?
-  status      LiveClassStatus @default(SCHEDULED)
+  title           String
+  description     String?
+  scheduledAt     DateTime
+  durationMinutes Int             @default(60)
+  meetingUrl      String
+  recordingUrl    String?
+  status          LiveClassStatus @default(SCHEDULED)
 
   notifySent          Boolean @default(false)
   recordingNotifySent Boolean @default(false)
@@ -287,7 +295,7 @@ model LiveClass {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  course  Course  @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  course  Course   @relation(fields: [courseId], references: [id], onDelete: Cascade)
   section Section? @relation(fields: [sectionId], references: [id], onDelete: Cascade)
 
   @@index([courseId])
@@ -299,8 +307,8 @@ model LiveClass {
 //////////////////////////////////////////////////////
 
 model DeviceToken {
-  id        String   @id @default(auto()) @map("_id") @db.ObjectId
-  userId    String   @db.ObjectId
+  id        String   @id @default(uuid())
+  userId    String
   token     String
   platform  String   @default("android")
   createdAt DateTime @default(now())
@@ -312,13 +320,13 @@ model DeviceToken {
 }
 
 model NotificationLog {
-  id          String    @id @default(auto()) @map("_id") @db.ObjectId
-  userId      String    @db.ObjectId
+  id          String    @id @default(uuid())
+  userId      String
   type        String
   title       String
   body        String
   data        String?
-  liveClassId String?   @db.ObjectId
+  liveClassId String?
   sent        Boolean   @default(false)
   sentAt      DateTime?
   error       String?
@@ -328,64 +336,63 @@ model NotificationLog {
 
   @@index([userId])
 }
+
 //////////////////////////////////////////////////////
 // E-COMMERCE
 //////////////////////////////////////////////////////
 
 model Category {
-  id          String   @id @default(auto()) @map("_id") @db.ObjectId
+  id          String   @id @default(uuid())
   name        String
   description String?
   image       String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  products    Product[]
+  products Product[]
 
   @@index([name])
 }
 
 model Product {
-  id          String   @id @default(auto()) @map("_id") @db.ObjectId
+  id          String  @id @default(uuid())
   name        String
   description String?
   image       String?
-  price       Float
-  stock       Int      @default(0)
-  isActive    Boolean  @default(true)
+  price       Decimal @db.Decimal(10, 2)
+  stock       Int     @default(0)
+  isActive    Boolean @default(true)
 
-  categoryId  String   @db.ObjectId
-  category    Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  categoryId String
+  category   Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
 
-  orderItems  OrderItem[]
-  cartItems   CartItem[]
+  orderItems OrderItem[]
+  cartItems  CartItem[]
 
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([categoryId])
   @@index([isActive])
 }
 
 model Cart {
-  id        String   @id @default(auto()) @map("_id") @db.ObjectId
-  userId    String   @db.ObjectId
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id        String     @id @default(uuid())
+  userId    String     @unique
+  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
   items     CartItem[]
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  @@unique([userId])
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
 }
 
 model CartItem {
-  id        String   @id @default(auto()) @map("_id") @db.ObjectId
-  cartId    String   @db.ObjectId
-  productId String   @db.ObjectId
-  quantity  Int      @default(1)
+  id        String @id @default(uuid())
+  cartId    String
+  productId String
+  quantity  Int    @default(1)
 
-  cart      Cart     @relation(fields: [cartId], references: [id], onDelete: Cascade)
-  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  cart    Cart    @relation(fields: [cartId], references: [id], onDelete: Cascade)
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
 
   @@unique([cartId, productId])
 }
@@ -399,40 +406,40 @@ enum OrderStatus {
 }
 
 model Order {
-  id            String      @id @default(auto()) @map("_id") @db.ObjectId
-  userId        String      @db.ObjectId
-  user          User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id     String @id @default(uuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  totalAmount   Float
-  status        OrderStatus @default(PENDING)
+  totalAmount Decimal     @db.Decimal(10, 2)
+  status      OrderStatus @default(PENDING)
 
-  shippingName      String
-  shippingPhone     String
-  shippingAddress   String
-  shippingCity      String
-  shippingState     String
-  shippingPostal    String
+  shippingName    String
+  shippingPhone   String
+  shippingAddress String
+  shippingCity    String
+  shippingState   String
+  shippingPostal  String
 
-  payment       Payment?
-  items         OrderItem[]
+  payment Payment?
+  items   OrderItem[]
 
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([userId])
   @@index([status])
 }
 
 model OrderItem {
-  id        String   @id @default(auto()) @map("_id") @db.ObjectId
-  orderId   String   @db.ObjectId
-  productId String   @db.ObjectId
+  id        String @id @default(uuid())
+  orderId   String
+  productId String
 
-  quantity  Int
-  price     Float
+  quantity Int
+  price    Decimal @db.Decimal(10, 2)
 
-  order     Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  product   Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  order   Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
 
   @@index([orderId])
 }

@@ -1,3 +1,5 @@
+version: "3.9"
+
 services:
   backend:
     build: .
@@ -7,8 +9,39 @@ services:
       - .env
     ports:
       - "127.0.0.1:3030:3030"
+    depends_on:
+      - postgres
     networks:
       - vastu_network
+
+  postgres:
+    image: postgres:15
+    container_name: vastu_postgres
+    restart: always
+    environment:
+      POSTGRES_USER: vastu
+      POSTGRES_PASSWORD: vastu123
+      POSTGRES_DB: vastu_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - vastu_network
+
+  adminer:
+    image: adminer
+    container_name: vastu_adminer
+    restart: always
+    ports:
+      - "8080:8080"
+    depends_on:
+      - postgres
+    networks:
+      - vastu_network
+
+volumes:
+  postgres_data:
 
 networks:
   vastu_network:

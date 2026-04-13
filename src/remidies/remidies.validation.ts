@@ -8,7 +8,7 @@ export const createCategorySchema = z.object({
   body: z.object({
     name: z.string().min(1, 'Name is required'),
     description: z.string().optional(),
-    image: z.string().url().optional(),
+    image: z.string().optional(),
   }),
 });
 
@@ -19,7 +19,7 @@ export const updateCategorySchema = z.object({
   body: z.object({
     name: z.string().min(1).optional(),
     description: z.string().optional(),
-    image: z.string().url().optional(),
+    image: z.string().optional(),
   }),
 });
 
@@ -33,10 +33,10 @@ export const createProductSchema = z.object({
   body: z.object({
     name: z.string().min(1, 'Name is required'),
     description: z.string().optional(),
-    image: z.string().url().optional(),
-    price: z.number().positive('Price must be greater than 0'),
-    stock: z.number().int().nonnegative('Stock cannot be negative'),
-    isActive: z.boolean().optional(),
+    image: z.string().optional(),
+    price: z.coerce.number().positive('Price must be greater than 0'),
+    stock: z.coerce.number().int().nonnegative('Stock cannot be negative'),
+    isActive: z.preprocess((val) => val === 'true' || val === true, z.boolean()).optional(),
     categoryId: objectIdSchema,
   }),
 });
@@ -48,10 +48,10 @@ export const updateProductSchema = z.object({
   body: z.object({
     name: z.string().min(1).optional(),
     description: z.string().optional(),
-    image: z.string().url().optional(),
-    price: z.number().positive().optional(),
-    stock: z.number().int().nonnegative().optional(),
-    isActive: z.boolean().optional(),
+    image: z.string().optional(),
+    price: z.coerce.number().positive().optional(),
+    stock: z.coerce.number().int().nonnegative().optional(),
+    isActive: z.preprocess((val) => val === 'true' || val === true, z.boolean()).optional(),
     categoryId: objectIdSchema.optional(),
   }),
 });
@@ -61,7 +61,7 @@ export const getProductsQuerySchema = z.object({
     page: z.string().regex(/^\d+$/).optional().transform(Number),
     limit: z.string().regex(/^\d+$/).optional().transform(Number),
     categoryId: objectIdSchema.optional(),
-    isActive: z.string().transform((val) => val === 'true').optional(),
+    isActive: z.preprocess((val) => val === 'true' || val === true, z.boolean()).optional(),
   }),
 });
 

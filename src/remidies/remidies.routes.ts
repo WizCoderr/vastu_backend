@@ -1,5 +1,13 @@
 import { Router, RequestHandler } from 'express';
 import * as ctrl from './remidies.controller';
+import multer from 'multer';
+import fs from 'fs';
+
+const tempDir = 'temp_uploads/';
+if (!fs.existsSync(tempDir)) {
+    fs.mkdirSync(tempDir);
+}
+const upload = multer({ dest: tempDir });
 
 // ─────────────────────────────────────────────
 // USER CATALOG ROUTES  (mounted under /api/student/remidies)
@@ -29,14 +37,14 @@ export const remidiesAdminRouter = Router();
 
 // Category management
 remidiesAdminRouter.get('/categories', ctrl.getCategories as RequestHandler);
-remidiesAdminRouter.post('/categories', ctrl.createCategory as RequestHandler);
-remidiesAdminRouter.put('/categories/:id', ctrl.updateCategory as RequestHandler);
+remidiesAdminRouter.post('/categories', upload.single('image'), ctrl.createCategory as RequestHandler);
+remidiesAdminRouter.put('/categories/:id', upload.single('image'), ctrl.updateCategory as RequestHandler);
 remidiesAdminRouter.delete('/categories/:id', ctrl.deleteCategory as RequestHandler);
 
 // Product management
 remidiesAdminRouter.get('/products', ctrl.getProducts as RequestHandler);
-remidiesAdminRouter.post('/products', ctrl.createProduct as RequestHandler);
-remidiesAdminRouter.put('/products/:id', ctrl.updateProduct as RequestHandler);
+remidiesAdminRouter.post('/products', upload.single('image'), ctrl.createProduct as RequestHandler);
+remidiesAdminRouter.put('/products/:id', upload.single('image'), ctrl.updateProduct as RequestHandler);
 remidiesAdminRouter.delete('/products/:id', ctrl.deleteProduct as RequestHandler);
 
 // Order management (Status)
