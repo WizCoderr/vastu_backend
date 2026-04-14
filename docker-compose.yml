@@ -8,7 +8,7 @@ services:
     env_file:
       - .env
     ports:
-      - "127.0.0.1:3030:3030"
+      - "127.0.0.1:3031:3030"
     depends_on:
       - postgres
 
@@ -33,7 +33,11 @@ services:
       - "7080:8080"
     depends_on:
       - postgres
-  
-  volumes:
-    postgres_data:
-      
+
+# ✅ MUST BE OUTSIDE services
+volumes:
+  postgres_data:
+
+networks:
+  default:
+    name: vastu_network
