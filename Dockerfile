@@ -16,8 +16,7 @@ COPY prisma ./prisma/
 RUN bun run prisma generate
 
 # Copy source code
-COPY src ./src
-COPY tsconfig.json ./
+COPY . .
 
 # Copy environment file (if needed)
 COPY .env* ./
