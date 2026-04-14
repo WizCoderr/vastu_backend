@@ -14,8 +14,10 @@ async function main() {
   const users = await db.collection('User').find().toArray();
   for (const u of users) {
     try {
-      await prisma.user.create({
-        data: {
+      await prisma.user.upsert({
+        where: { id: u._id.toString() },
+        update: {},
+        create: {
           id: u._id.toString(),
           email: u.email,
           password: u.password,
@@ -34,8 +36,10 @@ async function main() {
   const categories = await db.collection('Category').find().toArray();
   for (const c of categories) {
     try {
-      await prisma.category.create({
-        data: {
+      await prisma.category.upsert({
+        where: { id: c._id.toString() },
+        update: {},
+        create: {
           id: c._id.toString(),
           name: c.name,
           description: c.description,
@@ -52,8 +56,10 @@ async function main() {
   const products = await db.collection('Product').find().toArray();
   for (const p of products) {
     try {
-      await prisma.product.create({
-        data: {
+      await prisma.product.upsert({
+        where: { id: p._id.toString() },
+        update: {},
+        create: {
           id: p._id.toString(),
           name: p.name,
           description: p.description,
@@ -74,8 +80,10 @@ async function main() {
   const courses = await db.collection('Course').find().toArray();
   for (const c of courses) {
     try {
-      await prisma.course.create({
-        data: {
+      await prisma.course.upsert({
+        where: { id: c._id.toString() },
+        update: {},
+        create: {
           id: c._id.toString(),
           title: c.title,
           description: c.description,
@@ -101,8 +109,10 @@ async function main() {
   const cpp = await db.collection('CoursePaymentPlan').find().toArray();
   for (const plan of cpp) {
     try {
-      await prisma.coursePaymentPlan.create({
-        data: {
+      await prisma.coursePaymentPlan.upsert({
+        where: { id: plan._id.toString() },
+        update: {},
+        create: {
           id: plan._id.toString(),
           courseId: plan.courseId,
           stageName: plan.stageName,
@@ -122,8 +132,10 @@ async function main() {
   const cr = await db.collection('CourseResource').find().toArray();
   for (const r of cr) {
     try {
-      await prisma.courseResource.create({
-        data: {
+      await prisma.courseResource.upsert({
+        where: { id: r._id.toString() },
+        update: {},
+        create: {
           id: r._id.toString(),
           courseId: r.courseId,
           title: r.title,
@@ -142,8 +154,10 @@ async function main() {
   const sections = await db.collection('Section').find().toArray();
   for (const s of sections) {
     try {
-      await prisma.section.create({
-        data: {
+      await prisma.section.upsert({
+        where: { id: s._id.toString() },
+        update: {},
+        create: {
           id: s._id.toString(),
           title: s.title,
           courseId: s.courseId,
@@ -157,8 +171,10 @@ async function main() {
   const lectures = await db.collection('Lecture').find().toArray();
   for (const l of lectures) {
     try {
-      await prisma.lecture.create({
-        data: {
+      await prisma.lecture.upsert({
+        where: { id: l._id.toString() },
+        update: {},
+        create: {
           id: l._id.toString(),
           title: l.title,
           videoUrl: l.videoUrl || "",
@@ -179,8 +195,10 @@ async function main() {
   const liveclasses = await db.collection('LiveClass').find().toArray();
   for (const lc of liveclasses) {
     try {
-      await prisma.liveClass.create({
-        data: {
+      await prisma.liveClass.upsert({
+        where: { id: lc._id.toString() },
+        update: {},
+        create: {
           id: lc._id.toString(),
           courseId: lc.courseId,
           sectionId: lc.sectionId,
@@ -200,13 +218,25 @@ async function main() {
     } catch(err: any) { console.error(`Error LiveClass ${lc._id}: `, err.message); }
   }
 
+  // Pre-fetch existing IDs for FK validation
+  const existingUserIds = new Set((await prisma.user.findMany({ select: { id: true } })).map(u => u.id));
+  const existingCourseIds = new Set((await prisma.course.findMany({ select: { id: true } })).map(c => c.id));
+  const existingProductIds = new Set((await prisma.product.findMany({ select: { id: true } })).map(p => p.id));
+  const existingLectureIds = new Set((await prisma.lecture.findMany({ select: { id: true } })).map(l => l.id));
+  const existingPlanIds = new Set((await prisma.coursePaymentPlan.findMany({ select: { id: true } })).map(p => p.id));
+  const existingOrderIds = new Set((await prisma.order.findMany({ select: { id: true } })).map(o => o.id));
+
   // 10. Enrollments
   console.log("Migrating Enrollments...");
   const enrollments = await db.collection('Enrollment').find().toArray();
   for (const e of enrollments) {
     try {
-      await prisma.enrollment.create({
-        data: {
+      if (!existingUserIds.has(e.userId)) { console.log(`Skipping Enrollment ${e._id} - user not found`); continue; }
+      if (!existingCourseIds.has(e.courseId)) { console.log(`Skipping Enrollment ${e._id} - course not found`); continue; }
+      await prisma.enrollment.upsert({
+        where: { id: e._id.toString() },
+        update: {},
+        create: {
           id: e._id.toString(),
           userId: e.userId,
           courseId: e.courseId,
@@ -224,8 +254,11 @@ async function main() {
   const orders = await db.collection('Order').find().toArray();
   for (const o of orders) {
     try {
-      await prisma.order.create({
-        data: {
+      if (!existingUserIds.has(o.userId)) { console.log(`Skipping Order ${o._id} - user not found`); continue; }
+      await prisma.order.upsert({
+        where: { id: o._id.toString() },
+        update: {},
+        create: {
           id: o._id.toString(),
           userId: o.userId,
           totalAmount: o.totalAmount,
@@ -245,10 +278,15 @@ async function main() {
 
   console.log("Migrating OrderItems...");
   const orderItems = await db.collection('OrderItem').find().toArray();
+  const updatedOrderIds = new Set((await prisma.order.findMany({ select: { id: true } })).map(o => o.id));
   for (const oi of orderItems) {
     try {
-      await prisma.orderItem.create({
-        data: {
+      if (!updatedOrderIds.has(oi.orderId)) { console.log(`Skipping OrderItem ${oi._id} - order not found`); continue; }
+      if (!existingProductIds.has(oi.productId)) { console.log(`Skipping OrderItem ${oi._id} - product not found`); continue; }
+      await prisma.orderItem.upsert({
+        where: { id: oi._id.toString() },
+        update: {},
+        create: {
           id: oi._id.toString(),
           orderId: oi.orderId,
           productId: oi.productId,
@@ -263,8 +301,13 @@ async function main() {
   const payments = await db.collection('Payment').find().toArray();
   for (const p of payments) {
     try {
-      await prisma.payment.create({
-        data: {
+      if (!existingUserIds.has(p.userId)) { console.log(`Skipping Payment ${p._id} - user not found`); continue; }
+      if (p.courseId && !existingCourseIds.has(p.courseId)) { console.log(`Skipping Payment ${p._id} - course not found`); continue; }
+      if (p.orderId && !updatedOrderIds.has(p.orderId)) { console.log(`Skipping Payment ${p._id} - order not found`); continue; }
+      await prisma.payment.upsert({
+        where: { id: p._id.toString() },
+        update: {},
+        create: {
           id: p._id.toString(),
           userId: p.userId,
           type: p.type || 'COURSE',
@@ -289,8 +332,13 @@ async function main() {
   const studentPayments = await db.collection('StudentPayment').find().toArray();
   for (const sp of studentPayments) {
     try {
-      await prisma.studentPayment.create({
-        data: {
+      if (!existingUserIds.has(sp.userId)) { console.log(`Skipping StudentPayment ${sp._id} - user not found`); continue; }
+      if (sp.courseId && !existingCourseIds.has(sp.courseId)) { console.log(`Skipping StudentPayment ${sp._id} - course not found`); continue; }
+      if (sp.planId && !existingPlanIds.has(sp.planId)) { console.log(`Skipping StudentPayment ${sp._id} - plan not found`); continue; }
+      await prisma.studentPayment.upsert({
+        where: { id: sp._id.toString() },
+        update: {},
+        create: {
           id: sp._id.toString(),
           userId: sp.userId,
           courseId: sp.courseId,
@@ -313,8 +361,12 @@ async function main() {
   const progresses = await db.collection('Progress').find().toArray();
   for (const p of progresses) {
     try {
-      await prisma.progress.create({
-        data: {
+      if (!existingUserIds.has(p.userId)) { console.log(`Skipping Progress ${p._id} - user not found`); continue; }
+      if (!existingLectureIds.has(p.lectureId)) { console.log(`Skipping Progress ${p._id} - lecture not found`); continue; }
+      await prisma.progress.upsert({
+        where: { id: p._id.toString() },
+        update: {},
+        create: {
           id: p._id.toString(),
           userId: p.userId,
           lectureId: p.lectureId,
@@ -328,8 +380,14 @@ async function main() {
   const deviceTokens = await db.collection('DeviceToken').find().toArray();
   for (const dt of deviceTokens) {
     try {
-      await prisma.deviceToken.create({
-        data: {
+      if (!existingUserIds.has(dt.userId)) {
+        console.log(`Skipping DeviceToken ${dt._id} - userId ${dt.userId} not found`);
+        continue;
+      }
+      await prisma.deviceToken.upsert({
+        where: { id: dt._id.toString() },
+        update: {},
+        create: {
           id: dt._id.toString(),
           userId: dt.userId,
           token: dt.token,
@@ -345,8 +403,10 @@ async function main() {
   const notificationLogs = await db.collection('NotificationLog').find().toArray();
   for (const nl of notificationLogs) {
     try {
-      await prisma.notificationLog.create({
-        data: {
+      await prisma.notificationLog.upsert({
+        where: { id: nl._id.toString() },
+        update: {},
+        create: {
           id: nl._id.toString(),
           userId: nl.userId,
           type: nl.type || 'FCM',
@@ -367,8 +427,10 @@ async function main() {
   const carts = await db.collection('Cart').find().toArray();
   for (const c of carts) {
     try {
-      await prisma.cart.create({
-        data: {
+      await prisma.cart.upsert({
+        where: { id: c._id.toString() },
+        update: {},
+        create: {
           id: c._id.toString(),
           userId: c.userId,
           createdAt: c.createdAt,
@@ -382,8 +444,10 @@ async function main() {
   const cartItems = await db.collection('CartItem').find().toArray();
   for (const ci of cartItems) {
     try {
-      await prisma.cartItem.create({
-        data: {
+      await prisma.cartItem.upsert({
+        where: { id: ci._id.toString() },
+        update: {},
+        create: {
           id: ci._id.toString(),
           cartId: ci.cartId,
           productId: ci.productId,
