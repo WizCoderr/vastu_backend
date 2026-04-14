@@ -9,34 +9,6 @@ services:
       - .env
     ports:
       - "127.0.0.1:3030:3030"
-    depends_on:
-      - postgres
-
-  postgres:
-    image: postgres:15
-    container_name: vastu_postgres
-    restart: always
-    environment:
-      POSTGRES_USER: vastu
-      POSTGRES_PASSWORD: vastu_arun_db
-      POSTGRES_DB: vastu_db
-    ports:
-      - "5432:5432"
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-
-  adminer:
-    image: adminer
-    container_name: vastu_adminer
-    restart: always
-    ports:
-      - "7080:8080"
-    depends_on:
-      - postgres
-
-# ✅ MUST BE OUTSIDE services
-volumes:
-  postgres_data:
 
 networks:
   default:
