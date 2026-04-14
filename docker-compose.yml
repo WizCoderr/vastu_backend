@@ -11,8 +11,6 @@ services:
       - "127.0.0.1:3030:3030"
     depends_on:
       - postgres
-    networks:
-      - vastu_network
 
   postgres:
     image: postgres:15
@@ -20,29 +18,18 @@ services:
     restart: always
     environment:
       POSTGRES_USER: vastu
-      POSTGRES_PASSWORD: vastu123
+      POSTGRES_PASSWORD: vastu_arun_db
       POSTGRES_DB: vastu_db
     ports:
       - "5432:5432"
     volumes:
-      - postgres_data:/var/lib/postgresql/data
-    networks:
-      - vastu_network
+      - ./db/data:/var/lib/postgresql/data
 
   adminer:
     image: adminer
     container_name: vastu_adminer
     restart: always
     ports:
-      - "8080:8080"
+      - "7080:8080"
     depends_on:
       - postgres
-    networks:
-      - vastu_network
-
-volumes:
-  postgres_data:
-
-networks:
-  vastu_network:
-    driver: bridge
