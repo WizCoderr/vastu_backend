@@ -1,5 +1,5 @@
 import { Request, Response } from 'express';
-import { registerSchema, loginSchema, updateProfileSchema } from './auth.dto';
+import { registerSchema, loginSchema, forgotPasswordSchema, resetPasswordSchema, updateProfileSchema } from './auth.dto';
 import { AuthReducer } from "./auth.reducer";
 import { Result } from '../core/result';
 import logger from '../utils/logger';
@@ -50,6 +50,44 @@ export class AuthIntent {
             logger.warn('AuthIntent.login: Login failed', { error: result.error });
             return res.status(401).json(result);
         }
+    }
+
+    static async forgotPassword(req: Request, res: Response) {
+        logger.info('AuthIntent.forgotPassword: Password reset requested', { email: req.body?.email });
+
+        const validation = forgotPasswordSchema.safeParse(req.body);
+
+        if (!validation.success) {
+            logger.warn('AuthIntent.forgotPassword: Validation failed', { error: validation.error });
+            return res.status(400).json(Result.fail(validation.error));
+        }
+
+        const result = await AuthReducer.forgotPassword(validation.data);
+
+        logger.info('AuthIntent.forgotPassword: Password reset request processed', { email: validation.data.email });
+        return res.status(200).json(result);
+    }
+
+    static async resetPassword(req: Request, res: Response) {
+        const { password, token, ...logBody } = req.body;
+        logger.info('AuthIntent.resetPassword: Attempting password reset', { body: logBody });
+
+        const validation = resetPasswordSchema.safeParse(req.body);
+
+        if (!validation.success) {
+            logger.warn('AuthIntent.resetPassword: Validation failed', { error: validation.error });
+            return res.status(400).json(Result.fail(validation.error));
+        }
+
+        const result = await AuthReducer.resetPassword(validation.data);
+
+        if (result.success) {
+            logger.info('AuthIntent.resetPassword: Password reset successful');
+            return res.status(200).json(result);
+        }
+
+        logger.warn('AuthIntent.resetPassword: Password reset failed', { error: result.error });
+        return res.status(400).json(result);
     }
 
     static logout(req: AuthRequest, res: Response) {

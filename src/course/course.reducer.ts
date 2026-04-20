@@ -36,9 +36,10 @@ export class CourseReducer {
         // Map Decimal to number for DTO & Sign URLs
         const dtos = await Promise.all(courses.map(async (c) => {
             // Find active payment plan (one that has dates and covers 'now')
-            const activePaymentPlan = c.paymentPlans.find(p => 
+            const activePaymentPlanRaw = c.paymentPlans.find(p =>
                 p.startDate && p.endDate && now >= p.startDate && now <= p.endDate
             );
+            const activePaymentPlan = activePaymentPlanRaw ? { ...activePaymentPlanRaw, amount: Number(activePaymentPlanRaw.amount) } : null;
             
             return {
                 id: c.id,
@@ -48,7 +49,7 @@ export class CourseReducer {
                 instructorId: c.instructorId,
                 thumbnail: c.s3Key ? await getDirectS3Url(c.s3Key, c.s3Bucket || undefined).catch(() => c.thumbnail) : c.thumbnail,
                 // Only show payment plans if not expired
-                paymentPlans: (c.endDate && now > c.endDate) ? [] : c.paymentPlans,
+                paymentPlans: (c.endDate && now > c.endDate) ? [] : c.paymentPlans.map(p => ({ ...p, amount: Number(p.amount) })),
                 // number of students enrolled
                 studentCount: await prisma.enrollment.count({ where: { courseId: c.id } }),
                 activePaymentPlan: activePaymentPlan || null,
@@ -213,10 +214,11 @@ export class CourseReducer {
         if (!course) return Result.fail('Course not found');
 
         const now = new Date();
-        const activePaymentPlan = course.paymentPlans.find(p => 
+        const activePaymentPlanRaw = course.paymentPlans.find(p =>
             p.startDate && p.endDate && now >= p.startDate && now <= p.endDate
         );
-        const paymentPlans = (course.endDate && now > course.endDate) ? [] : course.paymentPlans;
+        const activePaymentPlan = activePaymentPlanRaw ? { ...activePaymentPlanRaw, amount: Number(activePaymentPlanRaw.amount) } : null;
+        const paymentPlans = (course.endDate && now > course.endDate) ? [] : course.paymentPlans.map(p => ({ ...p, amount: Number(p.amount) }));
 
         let enrollment = null;
         if (userId) {

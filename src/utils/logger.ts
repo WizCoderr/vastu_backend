@@ -1,8 +1,7 @@
 import winston from 'winston';
-import { config } from '../config';
 
 const logger = winston.createLogger({
-    level: config.env === 'development' ? 'debug' : 'info',
+    level: process.env.NODE_ENV === 'development' ? 'debug' : 'info',
     format: winston.format.combine(
         winston.format.timestamp(),
         winston.format.json()

@@ -370,7 +370,7 @@ export class InstructorIntent {
             });
             res.json({ success: true, lecture });
         } catch (error) {
-            console.error('Register Lecture Error:', error);
+            logger.error('Register Lecture Error:', { error });
             res.status(500).json({ error: 'Failed to register lecture' });
         }
     }
@@ -419,16 +419,11 @@ export class InstructorIntent {
 
             // Remove courseId from User.enrolledCourseIds array
             try {
-                await prisma.$runCommandRaw({
-                    update: "User",
-                    updates: [
-                        {
-                            q: { enrolledCourseIds: courseId },
-                            u: { $pull: { enrolledCourseIds: courseId } },
-                            multi: true
-                        }
-                    ]
-                });
+                await prisma.$executeRaw`
+                    UPDATE "User"
+                    SET "enrolledCourseIds" = array_remove("enrolledCourseIds", ${courseId})
+                    WHERE ${courseId} = ANY("enrolledCourseIds")
+                `;
             } catch (err) {
                 logger.error('Failed to cleanup User.enrolledCourseIds', { error: err });
                 // Non-blocking, continue with course deletion
@@ -512,7 +507,7 @@ export class InstructorIntent {
                 try {
                     url = await getPresignedReadUrl(r.s3Key, r.s3Bucket);
                 } catch (e) {
-                    console.error('Failed to sign resource URL', e);
+                    logger.error('Failed to sign resource URL', { error: e });
                 }
                 return { ...r, url };
             }));

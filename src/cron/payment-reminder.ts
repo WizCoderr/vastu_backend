@@ -48,10 +48,10 @@ export async function checkPaymentReminders() {
             // Send Notification
             if (payment.dueDate) {
                  await NotificationService.sendPaymentReminder(
-                    payment.userId, 
-                    payment.course.title, 
-                    payment.amount, 
-                    payment.dueDate, 
+                    payment.userId,
+                    payment.course.title,
+                    Number(payment.amount),
+                    payment.dueDate,
                     true
                 );
             }
@@ -89,10 +89,10 @@ export async function checkPaymentReminders() {
         try {
             if (payment.dueDate) {
                 await NotificationService.sendPaymentReminder(
-                    payment.userId, 
-                    payment.course.title, 
-                    payment.amount, 
-                    payment.dueDate, 
+                    payment.userId,
+                    payment.course.title,
+                    Number(payment.amount),
+                    payment.dueDate,
                     false
                 );
                  logger.info(`Cron: Sent reminder for payment ${payment.id} to user ${payment.userId}`);
@@ -109,7 +109,7 @@ if (import.meta.main) {
     checkPaymentReminders()
         .then(() => process.exit(0))
         .catch((e) => {
-            console.error(e);
+            logger.error('Payment reminder cron failed', { error: e });
             process.exit(1);
         });
 }

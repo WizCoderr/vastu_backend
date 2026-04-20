@@ -1,8 +1,7 @@
 import { z } from 'zod';
 import { OrderStatus } from '../generated/prisma/client';
 
-const objectIdRegex = /^[0-9a-fA-F]{24}$/;
-const objectIdSchema = z.string().regex(objectIdRegex, 'Invalid ObjectId');
+const idSchema = z.string().uuid('Invalid id');
 
 export const createCategorySchema = z.object({
   body: z.object({
@@ -14,7 +13,7 @@ export const createCategorySchema = z.object({
 
 export const updateCategorySchema = z.object({
   params: z.object({
-    id: objectIdSchema,
+    id: idSchema,
   }),
   body: z.object({
     name: z.string().min(1).optional(),
@@ -25,7 +24,7 @@ export const updateCategorySchema = z.object({
 
 export const categoryIdParamSchema = z.object({
   params: z.object({
-    id: objectIdSchema,
+    id: idSchema,
   }),
 });
 
@@ -37,13 +36,13 @@ export const createProductSchema = z.object({
     price: z.coerce.number().positive('Price must be greater than 0'),
     stock: z.coerce.number().int().nonnegative('Stock cannot be negative'),
     isActive: z.preprocess((val) => val === 'true' || val === true, z.boolean()).optional(),
-    categoryId: objectIdSchema,
+    categoryId: idSchema,
   }),
 });
 
 export const updateProductSchema = z.object({
   params: z.object({
-    id: objectIdSchema,
+    id: idSchema,
   }),
   body: z.object({
     name: z.string().min(1).optional(),
@@ -52,7 +51,7 @@ export const updateProductSchema = z.object({
     price: z.coerce.number().positive().optional(),
     stock: z.coerce.number().int().nonnegative().optional(),
     isActive: z.preprocess((val) => val === 'true' || val === true, z.boolean()).optional(),
-    categoryId: objectIdSchema.optional(),
+    categoryId: idSchema.optional(),
   }),
 });
 
@@ -60,27 +59,27 @@ export const getProductsQuerySchema = z.object({
   query: z.object({
     page: z.string().regex(/^\d+$/).optional().transform(Number),
     limit: z.string().regex(/^\d+$/).optional().transform(Number),
-    categoryId: objectIdSchema.optional(),
+    categoryId: idSchema.optional(),
     isActive: z.preprocess((val) => val === 'true' || val === true, z.boolean()).optional(),
   }),
 });
 
 export const productIdParamSchema = z.object({
   params: z.object({
-    id: objectIdSchema,
+    id: idSchema,
   }),
 });
 
 export const addToCartSchema = z.object({
   body: z.object({
-    productId: objectIdSchema,
+    productId: idSchema,
     quantity: z.number().int().positive('Quantity must be at least 1'),
   }),
 });
 
 export const updateCartItemSchema = z.object({
   params: z.object({
-    productId: objectIdSchema,
+    productId: idSchema,
   }),
   body: z.object({
     quantity: z.number().int().positive('Quantity must be at least 1'),
@@ -100,7 +99,7 @@ export const createOrderSchema = z.object({
 
 export const updateOrderStatusSchema = z.object({
   params: z.object({
-    id: objectIdSchema,
+    id: idSchema,
   }),
   body: z.object({
     status: z.nativeEnum(OrderStatus),
@@ -109,6 +108,6 @@ export const updateOrderStatusSchema = z.object({
 
 export const orderIdParamSchema = z.object({
   params: z.object({
-    id: objectIdSchema,
+    id: idSchema,
   }),
 });

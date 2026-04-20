@@ -52,6 +52,18 @@ This project strictly follows the **MVI (Model-View-Intent)** architecture:
     JWT_SECRET="your-secret-key"
     STRIPE_SECRET_KEY="sk_test_..."
     STRIPE_WEBHOOK_SECRET="whsec_..."
+
+    # Password reset
+    PASSWORD_RESET_BASE_URL="https://vastuarunsharma.com/reset-password"
+    PASSWORD_RESET_TTL_MINUTES=30
+
+    # SMTP (for password reset email)
+    SMTP_HOST="smtp.example.com"
+    SMTP_PORT=587
+    SMTP_SECURE=false
+    SMTP_USER="smtp-user"
+    SMTP_PASS="smtp-pass"
+    MAIL_FROM="Vastu Arun Sharma <noreply@vastuarunsharma.com>"
     ```
 
 3.  **Database Migration**

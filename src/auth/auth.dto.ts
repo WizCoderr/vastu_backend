@@ -18,9 +18,20 @@ export const loginSchema = z.object({
     password: z.string(),
 });
 
+export const forgotPasswordSchema = z.object({
+    email: z.string().email(),
+});
+
+export const resetPasswordSchema = z.object({
+    token: z.string().min(1),
+    password: z.string().min(6),
+});
+
 export type RegisterDto = z.infer<typeof registerSchema>;
 export type UpdateProfileDto = z.infer<typeof updateProfileSchema>;
 export type LoginDto = z.infer<typeof loginSchema>;
+export type ForgotPasswordDto = z.infer<typeof forgotPasswordSchema>;
+export type ResetPasswordDto = z.infer<typeof resetPasswordSchema>;
 
 export interface UserDto {
     id: string;
@@ -34,4 +45,8 @@ export interface UserDto {
 export interface AuthResponse {
     token: string;
     user: UserDto;
+}
+
+export interface AuthMessageResponse {
+    message: string;
 }

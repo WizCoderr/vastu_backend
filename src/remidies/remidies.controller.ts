@@ -30,13 +30,32 @@ const s3Client = new S3Client({
     }
 });
 
-const signS3Url = async (s3Url: string | null | undefined): Promise<string | null | undefined> => {
-    if (!s3Url || !s3Url.startsWith('s3://')) return s3Url;
+const parseS3Location = (url: string): { bucket: string; key: string } | null => {
+    if (url.startsWith('s3://')) {
+        const parts = url.slice('s3://'.length).split('/');
+        return { bucket: parts[0], key: parts.slice(1).join('/') };
+    }
     try {
-        const parts = s3Url.replace('s3://', '').split('/');
-        const bucket = parts[0];
-        const key = parts.slice(1).join('/');
-        return await getDirectS3Url(key, bucket);
+        const u = new URL(url);
+        if (!u.hostname.endsWith('amazonaws.com')) return null;
+        const virtualHost = u.hostname.match(/^([^.]+)\.s3[.-]/);
+        if (virtualHost) {
+            return { bucket: virtualHost[1], key: decodeURIComponent(u.pathname.replace(/^\//, '')) };
+        }
+        if (u.hostname.startsWith('s3.') || u.hostname === 's3.amazonaws.com') {
+            const segments = u.pathname.replace(/^\//, '').split('/');
+            return { bucket: segments[0], key: decodeURIComponent(segments.slice(1).join('/')) };
+        }
+    } catch { /* not a URL */ }
+    return null;
+};
+
+const signS3Url = async (s3Url: string | null | undefined): Promise<string | null | undefined> => {
+    if (!s3Url) return s3Url;
+    const loc = parseS3Location(s3Url);
+    if (!loc) return s3Url;
+    try {
+        return await getDirectS3Url(loc.key, loc.bucket);
     } catch (error) {
         logger.error('Failed to sign S3 URL', { s3Url, error });
         return s3Url;
@@ -149,6 +168,19 @@ export const deleteProduct: RequestHandler = async (req: AuthRequest, res, next)
     const { id } = productIdParamSchema.parse(req).params;
     await intent.deleteProduct(id);
     res.status(200).json({ success: true, message: 'Product deleted' });
+  } catch (error) { next(error); }
+};
+
+export const getAllProducts: RequestHandler = async (req, res, next) => {
+  try {
+    const categoryId = req.query.categoryId as string | undefined;
+    const isActive = req.query.isActive !== undefined ? req.query.isActive === 'true' : undefined;
+    const products = await intent.getAllProducts({ categoryId, isActive });
+    const signed = await Promise.all(products.map(async (p) => ({
+      ...p,
+      image: await signS3Url(p.image) || p.image,
+    })));
+    res.status(200).json({ success: true, data: signed, total: signed.length });
   } catch (error) { next(error); }
 };
 

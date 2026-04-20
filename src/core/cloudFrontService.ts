@@ -1,12 +1,16 @@
 import { getSignedUrl } from "@aws-sdk/cloudfront-signer";
 import logger from "../utils/logger";
 
-const CLOUDFRONT_DOMAIN = process.env.CLOUDFRONT_DOMAIN;
-const CLOUDFRONT_KEY_PAIR_ID = process.env.CLOUDFRONT_KEY_PAIR_ID;
-const CLOUDFRONT_PRIVATE_KEY_BASE64 = process.env.CLOUDFRONT_PRIVATE_KEY;
+const getDomain = () => process.env.CLOUDFRONT_DOMAIN;
+const getKeyPairId = () => process.env.CLOUDFRONT_KEY_PAIR_ID;
+const getPrivateKeyRaw = () => process.env.CLOUDFRONT_PRIVATE_KEY;
 
 export const getCloudFrontSignedUrl = (key: string): string => {
     try {
+        const CLOUDFRONT_DOMAIN = getDomain();
+        const CLOUDFRONT_KEY_PAIR_ID = getKeyPairId();
+        const CLOUDFRONT_PRIVATE_KEY_BASE64 = getPrivateKeyRaw();
+
         if (!CLOUDFRONT_DOMAIN || !CLOUDFRONT_KEY_PAIR_ID || !CLOUDFRONT_PRIVATE_KEY_BASE64) {
             throw new Error("CloudFront credentials are missing");
         }
@@ -71,6 +75,7 @@ export const getCloudFrontSignedUrl = (key: string): string => {
 };
 
 export const getCloudFrontPublicUrl = (key: string): string => {
+    const CLOUDFRONT_DOMAIN = getDomain();
     if (!CLOUDFRONT_DOMAIN) {
         throw new Error("CloudFront domain is missing");
     }
@@ -86,5 +91,9 @@ export const getCloudFrontPublicUrl = (key: string): string => {
 };
 
 export const isCloudFrontConfigured = (): boolean => {
-    return !!CLOUDFRONT_DOMAIN;
+    return !!getDomain();
+};
+
+export const isCloudFrontSigningConfigured = (): boolean => {
+    return !!getDomain() && !!getKeyPairId() && !!getPrivateKeyRaw();
 };

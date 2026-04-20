@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import { uploadImageToS3 } from '../utils/awsS3Client';
 import { v4 as uuidv4 } from 'uuid';
+import logger from '../utils/logger';
 
 // Controller to handle image uploads for categories
 export const uploadCategoryImage = async (req: Request, res: Response) => {
@@ -26,7 +27,7 @@ export const uploadCategoryImage = async (req: Request, res: Response) => {
       cdnUrl
     });
   } catch (error) {
-    console.error('Error uploading category image:', error);
+    logger.error('Error uploading category image:', { error });
     res.status(500).json({ error: 'Failed to upload category image' });
   }
 };
@@ -55,7 +56,7 @@ export const uploadProductImage = async (req: Request, res: Response) => {
       cdnUrl
     });
   } catch (error) {
-    console.error('Error uploading product image:', error);
+    logger.error('Error uploading product image:', { error });
     res.status(500).json({ error: 'Failed to upload product image' });
   }
 };

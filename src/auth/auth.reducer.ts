@@ -1,10 +1,16 @@
 import bcrypt from 'bcryptjs';
+import { createHash, randomBytes } from 'crypto';
 import { prisma } from "../core/prisma";
 import { signToken } from '../core/jwt';
-import { RegisterDto, LoginDto, AuthResponse, UserDto } from './auth.dto';
+import { config } from '../core/config';
+import { EmailService } from '../notification/email.service';
+import { RegisterDto, LoginDto, ForgotPasswordDto, ResetPasswordDto, AuthResponse, AuthMessageResponse, UserDto } from './auth.dto';
 import { Result } from '../core/result';
 
 export class AuthReducer {
+    private static readonly forgotPasswordMessage = 'If the account exists, a reset link has been sent.';
+    private static readonly invalidResetTokenMessage = 'Invalid or expired reset token';
+
     static async register(dto: RegisterDto): Promise<Result<AuthResponse>> {
         const existingUser = await prisma.user.findUnique({ where: { email: dto.email } });
 
@@ -102,5 +108,97 @@ export class AuthReducer {
             return Result.fail('Failed to update profile');
         }
     }
-}
 
+    static async forgotPassword(dto: ForgotPasswordDto): Promise<Result<AuthMessageResponse>> {
+        const user = await prisma.user.findUnique({ where: { email: dto.email } });
+
+        if (!user) {
+            return Result.ok({ message: this.forgotPasswordMessage });
+        }
+
+        const rawToken = randomBytes(32).toString('hex');
+        const tokenHash = this.hashResetToken(rawToken);
+        const now = new Date();
+        const expiresAt = new Date(now.getTime() + config.passwordResetTtlMinutes * 60 * 1000);
+
+        await prisma.$transaction(async (tx) => {
+            await tx.passwordResetToken.updateMany({
+                where: { userId: user.id, usedAt: null },
+                data: { usedAt: now },
+            });
+
+            await tx.passwordResetToken.create({
+                data: {
+                    userId: user.id,
+                    tokenHash,
+                    expiresAt,
+                },
+            });
+        });
+
+        await EmailService.sendPasswordReset({
+            userName: user.name ?? 'there',
+            userEmail: user.email,
+            resetUrl: this.buildPasswordResetUrl(rawToken),
+            expiresAt,
+        });
+
+        return Result.ok({ message: this.forgotPasswordMessage });
+    }
+
+    static async resetPassword(dto: ResetPasswordDto): Promise<Result<AuthMessageResponse>> {
+        const tokenHash = this.hashResetToken(dto.token);
+        const passwordHash = await bcrypt.hash(dto.password, 10);
+        const now = new Date();
+
+        const result = await prisma.$transaction(async (tx) => {
+            const claimedToken = await tx.passwordResetToken.updateMany({
+                where: {
+                    tokenHash,
+                    usedAt: null,
+                    expiresAt: { gt: now },
+                },
+                data: { usedAt: now },
+            });
+
+            if (claimedToken.count === 0) {
+                return Result.fail(this.invalidResetTokenMessage);
+            }
+
+            const resetToken = await tx.passwordResetToken.findUnique({
+                where: { tokenHash },
+            });
+
+            if (!resetToken) {
+                return Result.fail(this.invalidResetTokenMessage);
+            }
+
+            await tx.user.update({
+                where: { id: resetToken.userId },
+                data: { password: passwordHash },
+            });
+
+            await tx.passwordResetToken.updateMany({
+                where: {
+                    userId: resetToken.userId,
+                    usedAt: null,
+                },
+                data: { usedAt: now },
+            });
+
+            return Result.ok({ message: 'Password reset successful' });
+        });
+
+        return result;
+    }
+
+    private static hashResetToken(token: string): string {
+        return createHash('sha256').update(token).digest('hex');
+    }
+
+    private static buildPasswordResetUrl(token: string): string {
+        const resetUrl = new URL(config.passwordResetBaseUrl);
+        resetUrl.searchParams.set('token', token);
+        return resetUrl.toString();
+    }
+}

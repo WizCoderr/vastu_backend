@@ -23,6 +23,7 @@ model User {
   enrollments      Enrollment[]
   progress         Progress[]
   payments         Payment[]
+  passwordResetTokens PasswordResetToken[]
   studentPayments  StudentPayment[]
   deviceTokens     DeviceToken[]
   notificationLogs NotificationLog[]
@@ -31,6 +32,20 @@ model User {
   orders Order[]
 
   enrolledCourseIds String[]
+}
+
+model PasswordResetToken {
+  id        String   @id @default(uuid())
+  userId    String
+  tokenHash String   @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, expiresAt])
+  @@index([expiresAt])
 }
 
 //////////////////////////////////////////////////////

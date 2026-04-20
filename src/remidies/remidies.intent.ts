@@ -68,6 +68,11 @@ export const deleteProduct = async (id: string) => {
   return reducer.deleteProduct(id);
 };
 
+export const getAllProducts = async (params: { categoryId?: string; isActive?: boolean }) => {
+  const products = await reducer.getAllProducts(params);
+  return products.map(p => ({ ...p, price: Number(p.price) }));
+};
+
 export const getProducts = async (params: { page: number; limit: number; categoryId?: string; isActive?: boolean }) => {
   const skip = (params.page - 1) * params.limit;
   const take = params.limit;
@@ -75,7 +80,7 @@ export const getProducts = async (params: { page: number; limit: number; categor
   const result = await reducer.getProducts({ skip, take, categoryId: params.categoryId, isActive: params.isActive });
 
   return {
-    data: result.products,
+    data: result.products.map(p => ({ ...p, price: Number(p.price) })),
     meta: {
       total: result.total,
       page: params.page,
@@ -114,10 +119,12 @@ export const addToCart = async (userId: string, productId: string, quantity: num
   }
 
   if (existingItem) {
-    return reducer.updateCartItemQuantity(existingItem.id, totalQuantity);
+    await reducer.updateCartItemQuantity(existingItem.id, totalQuantity);
   } else {
-    return reducer.addCartItem(cart.id, productId, quantity);
+    await reducer.addCartItem(cart.id, productId, quantity);
   }
+
+  return reducer.getCartByUserId(userId);
 };
 
 export const updateCartItem = async (userId: string, productId: string, quantity: number) => {
@@ -135,14 +142,16 @@ export const updateCartItem = async (userId: string, productId: string, quantity
     throw new Error(`Insufficient stock. Available: ${product.stock}`);
   }
 
-  return reducer.updateCartItemQuantity(existingItem.id, quantity);
+  await reducer.updateCartItemQuantity(existingItem.id, quantity);
+  return reducer.getCartByUserId(userId);
 };
 
 export const removeFromCart = async (userId: string, productId: string) => {
   const cart = await reducer.getCartByUserId(userId);
   if (!cart) throw new Error('Cart not found');
 
-  return reducer.removeCartItem(cart.id, productId);
+  await reducer.removeCartItem(cart.id, productId);
+  return reducer.getCartByUserId(userId);
 };
 
 // --- ORDER INTENT ---
@@ -179,10 +188,10 @@ export const checkoutCart = async (
     orderItemsData.push({
       productId: product.id,
       quantity: item.quantity,
-      price: product.price, // Snapshot current price
+      price: Number(product.price),
     });
 
-    totalAmount += product.price * item.quantity;
+    totalAmount += Number(product.price) * item.quantity;
   }
 
   return reducer.createOrderWithTransaction(userId, orderItemsData, totalAmount, shippingDetails);

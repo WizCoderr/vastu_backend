@@ -7,12 +7,6 @@ import { startNotificationWorker } from './notification/notification.worker';
 const startServer = () => {
     app.listen(config.port, () => {
         logger.info(`Server started on port ${config.port}`);
-
-        // Start notification worker only on primary process or single process mode
-        // This prevents duplicate notifications in cluster mode
-        if (!cluster.isWorker || process.env.ENABLE_NOTIFICATION_WORKER === 'true') {
-            startNotificationWorker();
-        }
     });
 };
 
@@ -23,7 +17,7 @@ if ((numCPUs > 1 || forceCluster) && cluster.isPrimary) {
     logger.info(`Master ${process.pid} is running`);
     logger.info(`Forking ${numCPUs} workers...`);
 
-    // Start notification worker on primary process in cluster mode
+    // Only start notification worker once on the primary process
     startNotificationWorker();
 
     for (let i = 0; i < numCPUs; i++) {
@@ -37,6 +31,8 @@ if ((numCPUs > 1 || forceCluster) && cluster.isPrimary) {
 } else {
     if (numCPUs === 1 && !forceCluster) {
         logger.info('Running in single process mode (optimized for 1 vCPU)');
+        // In single-process mode, start notification worker here (no cluster primary)
+        startNotificationWorker();
     }
     startServer();
 }

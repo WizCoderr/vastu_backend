@@ -111,7 +111,7 @@ export class AdminReducer {
             // Calculate Stats
             const totalVolume = payments
                 .filter(p => p.status === 'COMPLETED')
-                .reduce((acc, curr) => acc + (curr.amount || 0), 0);
+                .reduce((acc, curr) => acc + (Number(curr.amount) || 0), 0);
 
             const refundCount = payments.filter(p => p.status === 'REFUNDED').length;
             const refundRate = payments.length > 0 ? ((refundCount / payments.length) * 100).toFixed(2) + '%' : '0%';

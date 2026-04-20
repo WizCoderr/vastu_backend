@@ -1,7 +1,7 @@
 import { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand, ListObjectsV2Command, DeleteObjectsCommand, CopyObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import logger from '../utils/logger';
-import { getCloudFrontPublicUrl, isCloudFrontConfigured } from './cloudFrontService';
+import { getCloudFrontPublicUrl, getCloudFrontSignedUrl, isCloudFrontConfigured, isCloudFrontSigningConfigured } from './cloudFrontService';
 
 const s3Client = new S3Client({
     region: process.env.AWS_REGION || 'us-east-1',
@@ -35,16 +35,19 @@ export const getPresignedReadUrl = async (key: string, bucket?: string) => {
         const defaultBucket = process.env.AWS_BUCKET_NAME;
         const targetBucket = bucket || defaultBucket;
 
-        // If CloudFront is configured AND we are targeting the default bucket, try CloudFront
-        // BUT only for videos as requested
-        const isVideo = key.includes('/videos/') || /\.(mp4|mov|avi|mkv|webm)$/i.test(key);
-
-        if (isCloudFrontConfigured() && targetBucket === defaultBucket) {
-            try {
-                return getCloudFrontPublicUrl(key);
-            } catch (err) {
-                // Fall back to S3 pre-signed URL if CloudFront signing fails
-                logger.warn('CloudFront signing failed, falling back to S3 signed URL', { key, error: err });
+        if (targetBucket === defaultBucket) {
+            if (isCloudFrontSigningConfigured()) {
+                try {
+                    return getCloudFrontSignedUrl(key);
+                } catch (err) {
+                    logger.warn('CloudFront signed URL generation failed, falling back', { key, error: err });
+                }
+            } else if (isCloudFrontConfigured()) {
+                try {
+                    return getCloudFrontPublicUrl(key);
+                } catch (err) {
+                    logger.warn('CloudFront public URL generation failed, falling back to S3 signed URL', { key, error: err });
+                }
             }
         }
 
@@ -74,11 +77,19 @@ export const getDirectS3Url = async (key: string, bucket?: string) => {
             Key: key
         });
 
-        if (isCloudFrontConfigured() && targetBucket === process.env.AWS_BUCKET_NAME) {
-            try {
-                return getCloudFrontPublicUrl(key);
-            } catch (err) {
-                logger.warn('CloudFront public URL generation failed for direct URL, falling back to S3', { key, error: err });
+        if (targetBucket === process.env.AWS_BUCKET_NAME) {
+            if (isCloudFrontSigningConfigured()) {
+                try {
+                    return getCloudFrontSignedUrl(key);
+                } catch (err) {
+                    logger.warn('CloudFront signed URL generation failed for direct URL, falling back', { key, error: err });
+                }
+            } else if (isCloudFrontConfigured()) {
+                try {
+                    return getCloudFrontPublicUrl(key);
+                } catch (err) {
+                    logger.warn('CloudFront public URL generation failed for direct URL, falling back to S3', { key, error: err });
+                }
             }
         }
 

@@ -93,7 +93,7 @@ export class AdminIntent {
 
     static async getStorageFiles(req: Request, res: Response) {
         logger.info('AdminIntent.getStorageFiles: Listing storage files');
-        const limit = Number(req.query.limit) || 20;
+        const limit = Math.min(Number(req.query.limit) || 20, 100);
         const cursor = req.query.cursor as string | undefined;
 
         const { AdminReducer } = await import('./admin.reducer');

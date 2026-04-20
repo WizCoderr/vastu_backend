@@ -49,3 +49,4 @@ brain
 # markdown files: ignore all but README.md
 *.md
 !README.md
+!PROJECT_DOCUMENTATION.md

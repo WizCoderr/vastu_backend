@@ -19,6 +19,7 @@ export const remidiesUserRouter = Router();
 remidiesUserRouter.get('/categories', ctrl.getCategories as RequestHandler);
 
 // Products (read-only for users)
+remidiesUserRouter.get('/products/all', ctrl.getAllProducts as RequestHandler);
 remidiesUserRouter.get('/products', ctrl.getProducts as RequestHandler);
 
 // Cart
@@ -42,6 +43,7 @@ remidiesAdminRouter.put('/categories/:id', upload.single('image'), ctrl.updateCa
 remidiesAdminRouter.delete('/categories/:id', ctrl.deleteCategory as RequestHandler);
 
 // Product management
+remidiesAdminRouter.get('/products/all', ctrl.getAllProducts as RequestHandler);
 remidiesAdminRouter.get('/products', ctrl.getProducts as RequestHandler);
 remidiesAdminRouter.post('/products', upload.single('image'), ctrl.createProduct as RequestHandler);
 remidiesAdminRouter.put('/products/:id', upload.single('image'), ctrl.updateProduct as RequestHandler);

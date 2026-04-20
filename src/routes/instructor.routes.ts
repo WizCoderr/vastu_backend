@@ -1,17 +1,15 @@
 import { Router, RequestHandler } from 'express';
 import { InstructorIntent } from '../course/instructor.intent';
-
 import { requireAdmin } from '../core/authMiddleware';
 import { AuthIntent } from '../auth/auth.intent';
 import multer from 'multer';
-import path from 'path';
+import fs from 'fs';
 
 const router = Router();
 
-// Configure Multer for processing
 const tempDir = 'temp_uploads/';
-if (!require('fs').existsSync(tempDir)) {
-    require('fs').mkdirSync(tempDir);
+if (!fs.existsSync(tempDir)) {
+    fs.mkdirSync(tempDir);
 }
 const upload = multer({ dest: tempDir });
 

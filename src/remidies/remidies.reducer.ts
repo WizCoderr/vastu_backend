@@ -24,6 +24,18 @@ export const getCategories = async () => {
   return prisma.category.findMany();
 };
 
+export const getAllProducts = async (params: { categoryId?: string; isActive?: boolean }) => {
+  const where: any = {};
+  if (params.categoryId) where.categoryId = params.categoryId;
+  if (params.isActive !== undefined) where.isActive = params.isActive;
+
+  return prisma.product.findMany({
+    where,
+    include: { category: true },
+    orderBy: { createdAt: 'desc' },
+  });
+};
+
 export const getCategoryById = async (categoryId: string) => {
   return prisma.category.findUnique({
     where: { id: categoryId },
