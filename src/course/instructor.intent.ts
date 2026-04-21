@@ -24,7 +24,7 @@ export class InstructorIntent {
             const schema = z.object({
                 title: z.string().min(3),
                 description: z.string().optional(),
-                price: z.coerce.string(),
+                price: z.coerce.number().min(0, 'Price cannot be negative').transform(String),
                 instructorId: z.string(),
                 s3Key: z.string().optional(),
                 s3Bucket: z.string().optional(),
@@ -576,7 +576,7 @@ export class InstructorIntent {
             const courseSchema = z.object({
                 title: z.string().optional(),
                 description: z.string().optional(),
-                price: z.coerce.string().optional(),
+                price: z.coerce.number().min(0, 'Price cannot be negative').transform(String).optional(),
                 s3Key: z.string().optional().nullable(),
                 s3Bucket: z.string().optional().nullable(),
                 sections: z.array(sectionSchema).optional(),
