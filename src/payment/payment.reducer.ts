@@ -44,6 +44,22 @@ export class PaymentReducer {
   }
 
   // -------------------------------------------------------------------------
+  //  Free Enrollment
+  // -------------------------------------------------------------------------
+
+  static async freeEnroll(userId: string, courseId: string) {
+    const course = await prisma.course.findUnique({ where: { id: courseId } });
+    if (!course) return Result.fail("Course not found");
+    if (!course.published) return Result.fail("Course is not available");
+
+    const existing = await EnrollmentRepository.findEnrollment(userId, courseId);
+    if (existing) return Result.fail("Already enrolled");
+
+    await EnrollmentRepository.createEnrollment(userId, courseId);
+    return Result.ok({ success: true });
+  }
+
+  // -------------------------------------------------------------------------
   //  Course Enrollment Logic (INSTALLMENT ONLY)
   // -------------------------------------------------------------------------
 

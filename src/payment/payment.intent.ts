@@ -139,6 +139,21 @@ export class PaymentIntent {
         }
     }
 
+    static async freeEnroll(req: AuthRequest, res: Response) {
+        if (!req.user) return res.status(401).json({ error: "Unauthorized" });
+        try {
+            const { courseId } = req.body;
+            if (!courseId) return res.status(400).json({ error: "courseId is required" });
+
+            const result = await PaymentReducer.freeEnroll(req.user.userId, courseId);
+            return result.success
+                ? res.json({ success: true })
+                : res.status(400).json({ error: result.error });
+        } catch {
+            res.status(500).json({ error: "Free enrollment failed" });
+        }
+    }
+
     static async getPaymentApis(req: any, res: Response) {
         const apis = {
             student: [

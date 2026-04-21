@@ -10,6 +10,7 @@ router.get("/", PaymentIntent.getPaymentApis);
 // =============================================================================
 //  COURSE PAYMENTS (STUDENT)
 // =============================================================================
+router.post("/free-enroll", requireAuth, PaymentIntent.freeEnroll);
 router.post("/course/order", requireAuth, PaymentIntent.createRazorpayOrder);
 router.post("/course/verify", requireAuth, PaymentIntent.verifyRazorpayPayment);
 router.get("/course/:courseId/plan", PaymentIntent.getCoursePaymentPlan);
