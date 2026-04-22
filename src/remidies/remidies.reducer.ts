@@ -1,5 +1,5 @@
 import { prisma } from '../core/prisma';
-import { OrderStatus, PaymentStatus, PaymentType, PaymentProvider } from '../generated/prisma/client';
+import { OrderStatus, PaymentStatus, PaymentType, PaymentProvider, DiscountType, BulkTierType } from '../generated/prisma/client';
 
 // --- CATEGORY ---
 
@@ -157,7 +157,14 @@ export const clearCart = async (cartId: string) => {
 export const createOrderWithTransaction = async (
   userId: string,
   cartItems: { productId: string; quantity: number; price: number }[],
-  totalAmount: number,
+  breakdown: {
+    subtotalAmount: number;
+    bulkDiscount: number;
+    couponDiscount: number;
+    totalAmount: number;
+    appliedCouponId: string | null;
+    couponMaxUses: number | null;
+  },
   shippingDetails: {
     shippingName: string;
     shippingPhone: string;
@@ -192,8 +199,12 @@ export const createOrderWithTransaction = async (
     const order = await tx.order.create({
       data: {
         userId,
-        totalAmount,
+        subtotalAmount: breakdown.subtotalAmount,
+        bulkDiscount: breakdown.bulkDiscount,
+        couponDiscount: breakdown.couponDiscount,
+        totalAmount: breakdown.totalAmount,
         status: OrderStatus.PENDING,
+        couponId: breakdown.appliedCouponId ?? undefined,
         ...shippingDetails,
         items: {
           create: cartItems.map((item) => ({
@@ -206,20 +217,36 @@ export const createOrderWithTransaction = async (
       include: { items: true },
     });
 
-    // 4. Create pending Payment record for the Order
+    // 4. If coupon applied: create usage record + increment count with race-condition guard
+    if (breakdown.appliedCouponId && breakdown.couponMaxUses !== null) {
+      const updated = await tx.coupon.updateMany({
+        where: { id: breakdown.appliedCouponId, usedCount: { lt: breakdown.couponMaxUses } },
+        data: { usedCount: { increment: 1 } },
+      });
+
+      if (updated.count === 0) {
+        throw new Error('Coupon usage limit reached');
+      }
+
+      await tx.couponUsage.create({
+        data: { couponId: breakdown.appliedCouponId, orderId: order.id, userId },
+      });
+    }
+
+    // 5. Create pending Payment record for the Order
     const payment = await tx.payment.create({
       data: {
         userId,
         type: PaymentType.PRODUCT,
         orderId: order.id,
-        amount: totalAmount,
+        amount: breakdown.totalAmount,
         currency: 'INR',
         status: PaymentStatus.PENDING,
         provider: PaymentProvider.RAZORPAY,
       },
     });
 
-    // 5. Clear user's cart
+    // 6. Clear user's cart
     const cart = await tx.cart.findUnique({ where: { userId }, select: { id: true } });
     if (cart) {
       await tx.cartItem.deleteMany({
@@ -227,7 +254,7 @@ export const createOrderWithTransaction = async (
       });
     }
 
-    return { order, payment };
+    return { order, payment, breakdown };
   });
 };
 
@@ -258,4 +285,93 @@ export const updateOrderStatus = async (orderId: string, status: OrderStatus) =>
     where: { id: orderId },
     data: { status },
   });
+};
+
+// --- COUPON ---
+
+export const createCoupon = async (data: {
+  code: string;
+  discountType: DiscountType;
+  discountValue: number;
+  maxUses: number;
+  expiresAt: Date;
+  assignedUserId: string;
+}) => {
+  return prisma.coupon.create({ data });
+};
+
+export const getCouponByCode = async (code: string) => {
+  return prisma.coupon.findUnique({ where: { code } });
+};
+
+export const getCouponById = async (id: string) => {
+  return prisma.coupon.findUnique({
+    where: { id },
+    include: {
+      assignedUser: { select: { id: true, name: true, email: true } },
+      usages: { include: { order: { select: { id: true, totalAmount: true, createdAt: true } } } },
+    },
+  });
+};
+
+export const getAllCoupons = async (filters?: { assignedUserId?: string; isActive?: boolean }) => {
+  const where: any = {};
+  if (filters?.assignedUserId) where.assignedUserId = filters.assignedUserId;
+  if (filters?.isActive !== undefined) where.isActive = filters.isActive;
+
+  return prisma.coupon.findMany({
+    where,
+    include: { assignedUser: { select: { id: true, name: true, email: true } } },
+    orderBy: { createdAt: 'desc' },
+  });
+};
+
+export const updateCoupon = async (id: string, data: {
+  discountValue?: number;
+  maxUses?: number;
+  expiresAt?: Date;
+  isActive?: boolean;
+}) => {
+  return prisma.coupon.update({ where: { id }, data });
+};
+
+export const getUserCoupons = async (userId: string) => {
+  return prisma.coupon.findMany({
+    where: { assignedUserId: userId, isActive: true },
+    orderBy: { createdAt: 'desc' },
+  });
+};
+
+// --- BULK DISCOUNT TIER ---
+
+export const createBulkTier = async (data: {
+  type: BulkTierType;
+  minThreshold: number;
+  discountPercent: number;
+  isActive?: boolean;
+}) => {
+  return prisma.bulkDiscountTier.create({ data });
+};
+
+export const getActiveBulkTiers = async () => {
+  return prisma.bulkDiscountTier.findMany({
+    where: { isActive: true },
+    orderBy: { discountPercent: 'desc' },
+  });
+};
+
+export const getAllBulkTiers = async () => {
+  return prisma.bulkDiscountTier.findMany({ orderBy: { createdAt: 'desc' } });
+};
+
+export const updateBulkTier = async (id: string, data: {
+  minThreshold?: number;
+  discountPercent?: number;
+  isActive?: boolean;
+}) => {
+  return prisma.bulkDiscountTier.update({ where: { id }, data });
+};
+
+export const deleteBulkTier = async (id: string) => {
+  return prisma.bulkDiscountTier.delete({ where: { id } });
 };

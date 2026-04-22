@@ -1,5 +1,5 @@
 import * as reducer from './remidies.reducer';
-import { OrderStatus } from '../generated/prisma/client';
+import { OrderStatus, DiscountType, BulkTierType } from '../generated/prisma/client';
 
 // --- CATEGORY INTENT ---
 
@@ -154,6 +154,57 @@ export const removeFromCart = async (userId: string, productId: string) => {
   return reducer.getCartByUserId(userId);
 };
 
+// --- DISCOUNT HELPERS ---
+
+const applyBulkDiscount = async (
+  subtotal: number,
+  totalQuantity: number
+): Promise<{ bulkDiscount: number; appliedTierId: string | null }> => {
+  const tiers = await reducer.getActiveBulkTiers();
+
+  let bestDiscountAmount = 0;
+  let bestTierId: string | null = null;
+
+  for (const tier of tiers) {
+    const threshold = Number(tier.minThreshold);
+    const qualifies =
+      tier.type === 'QUANTITY' ? totalQuantity >= threshold : subtotal >= threshold;
+
+    if (qualifies) {
+      const discountAmount = (subtotal * Number(tier.discountPercent)) / 100;
+      if (discountAmount > bestDiscountAmount) {
+        bestDiscountAmount = discountAmount;
+        bestTierId = tier.id;
+      }
+    }
+  }
+
+  return { bulkDiscount: bestDiscountAmount, appliedTierId: bestTierId };
+};
+
+const validateCoupon = async (
+  code: string,
+  userId: string,
+  priceBase: number
+): Promise<{ couponId: string; couponMaxUses: number; discountAmount: number }> => {
+  const coupon = await reducer.getCouponByCode(code);
+
+  if (!coupon) throw new Error('Coupon not found or invalid');
+  if (!coupon.isActive) throw new Error('This coupon has been deactivated');
+  if (coupon.assignedUserId !== userId) throw new Error('This coupon is not valid for your account');
+  if (new Date() > coupon.expiresAt) throw new Error('This coupon has expired');
+  if (coupon.usedCount >= coupon.maxUses) throw new Error('This coupon has reached its maximum usage limit');
+
+  let discountAmount: number;
+  if (coupon.discountType === DiscountType.PERCENTAGE) {
+    discountAmount = (priceBase * Number(coupon.discountValue)) / 100;
+  } else {
+    discountAmount = Math.min(Number(coupon.discountValue), priceBase);
+  }
+
+  return { couponId: coupon.id, couponMaxUses: coupon.maxUses, discountAmount };
+};
+
 // --- ORDER INTENT ---
 
 export const checkoutCart = async (
@@ -165,7 +216,8 @@ export const checkoutCart = async (
     shippingCity: string;
     shippingState: string;
     shippingPostal: string;
-  }
+  },
+  couponCode?: string
 ) => {
   const cart = await reducer.getCartByUserId(userId);
   if (!cart || cart.items.length === 0) {
@@ -173,7 +225,8 @@ export const checkoutCart = async (
   }
 
   const orderItemsData = [];
-  let totalAmount = 0;
+  let subtotalAmount = 0;
+  let totalQuantity = 0;
 
   for (const item of cart.items) {
     const product = item.product;
@@ -191,10 +244,32 @@ export const checkoutCart = async (
       price: Number(product.price),
     });
 
-    totalAmount += Number(product.price) * item.quantity;
+    subtotalAmount += Number(product.price) * item.quantity;
+    totalQuantity += item.quantity;
   }
 
-  return reducer.createOrderWithTransaction(userId, orderItemsData, totalAmount, shippingDetails);
+  const { bulkDiscount } = await applyBulkDiscount(subtotalAmount, totalQuantity);
+  const postBulkAmount = subtotalAmount - bulkDiscount;
+
+  let couponDiscount = 0;
+  let appliedCouponId: string | null = null;
+  let couponMaxUses: number | null = null;
+
+  if (couponCode) {
+    const couponResult = await validateCoupon(couponCode, userId, postBulkAmount);
+    couponDiscount = couponResult.discountAmount;
+    appliedCouponId = couponResult.couponId;
+    couponMaxUses = couponResult.couponMaxUses;
+  }
+
+  const totalAmount = Math.max(0, postBulkAmount - couponDiscount);
+
+  return reducer.createOrderWithTransaction(
+    userId,
+    orderItemsData,
+    { subtotalAmount, bulkDiscount, couponDiscount, totalAmount, appliedCouponId, couponMaxUses },
+    shippingDetails
+  );
 };
 
 export const getUserOrders = async (userId: string) => {
@@ -206,4 +281,110 @@ export const updateOrderStatus = async (orderId: string, status: OrderStatus) =>
   if (!order) throw new Error('Order not found');
 
   return reducer.updateOrderStatus(orderId, status);
+};
+
+// --- COUPON INTENT ---
+
+export const createCoupon = async (data: {
+  code: string;
+  discountType: DiscountType;
+  discountValue: number;
+  maxUses: number;
+  expiresAt: string;
+  assignedUserId: string;
+}) => {
+  const existing = await reducer.getCouponByCode(data.code.toUpperCase());
+  if (existing) throw new Error('A coupon with this code already exists');
+
+  return reducer.createCoupon({
+    ...data,
+    code: data.code.toUpperCase(),
+    expiresAt: new Date(data.expiresAt),
+  });
+};
+
+export const getCoupons = async (filters?: { assignedUserId?: string; isActive?: boolean }) => {
+  return reducer.getAllCoupons(filters);
+};
+
+export const getCoupon = async (id: string) => {
+  const coupon = await reducer.getCouponById(id);
+  if (!coupon) throw new Error('Coupon not found');
+  return coupon;
+};
+
+export const updateCoupon = async (id: string, data: {
+  discountValue?: number;
+  maxUses?: number;
+  expiresAt?: string;
+  isActive?: boolean;
+}) => {
+  const existing = await reducer.getCouponById(id);
+  if (!existing) throw new Error('Coupon not found');
+
+  return reducer.updateCoupon(id, {
+    ...data,
+    expiresAt: data.expiresAt ? new Date(data.expiresAt) : undefined,
+  });
+};
+
+export const deactivateCoupon = async (id: string) => {
+  const existing = await reducer.getCouponById(id);
+  if (!existing) throw new Error('Coupon not found');
+  return reducer.updateCoupon(id, { isActive: false });
+};
+
+export const getMyCoupons = async (userId: string) => {
+  return reducer.getUserCoupons(userId);
+};
+
+export const validateCouponForUser = async (couponCode: string, userId: string) => {
+  const coupon = await reducer.getCouponByCode(couponCode.toUpperCase());
+
+  if (!coupon) throw new Error('Coupon not found or invalid');
+  if (!coupon.isActive) throw new Error('This coupon has been deactivated');
+  if (coupon.assignedUserId !== userId) throw new Error('This coupon is not valid for your account');
+  if (new Date() > coupon.expiresAt) throw new Error('This coupon has expired');
+  if (coupon.usedCount >= coupon.maxUses) throw new Error('This coupon has reached its maximum usage limit');
+
+  return {
+    code: coupon.code,
+    discountType: coupon.discountType,
+    discountValue: Number(coupon.discountValue),
+    usesRemaining: coupon.maxUses - coupon.usedCount,
+    expiresAt: coupon.expiresAt,
+  };
+};
+
+// --- BULK DISCOUNT TIER INTENT ---
+
+export const createBulkTier = async (data: {
+  type: BulkTierType;
+  minThreshold: number;
+  discountPercent: number;
+  isActive?: boolean;
+}) => {
+  return reducer.createBulkTier(data);
+};
+
+export const getBulkTiers = async (activeOnly = false) => {
+  return activeOnly ? reducer.getActiveBulkTiers() : reducer.getAllBulkTiers();
+};
+
+export const updateBulkTier = async (id: string, data: {
+  minThreshold?: number;
+  discountPercent?: number;
+  isActive?: boolean;
+}) => {
+  const tiers = await reducer.getAllBulkTiers();
+  const existing = tiers.find((t) => t.id === id);
+  if (!existing) throw new Error('Bulk discount tier not found');
+  return reducer.updateBulkTier(id, data);
+};
+
+export const deleteBulkTier = async (id: string) => {
+  const tiers = await reducer.getAllBulkTiers();
+  const existing = tiers.find((t) => t.id === id);
+  if (!existing) throw new Error('Bulk discount tier not found');
+  return reducer.deleteBulkTier(id);
 };

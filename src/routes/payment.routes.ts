@@ -13,9 +13,6 @@ router.get("/", PaymentIntent.getPaymentApis);
 router.post("/free-enroll", requireAuth, PaymentIntent.freeEnroll);
 router.post("/course/order", requireAuth, PaymentIntent.createRazorpayOrder);
 router.post("/course/verify", requireAuth, PaymentIntent.verifyRazorpayPayment);
-router.get("/course/:courseId/plan", PaymentIntent.getCoursePaymentPlan);
-router.get("/course/:courseId/my-payments", requireAuth, PaymentIntent.getStudentPayments);
-router.post("/course/installment/:paymentId/pay", requireAuth, PaymentIntent.payInstallment);
 
 // =============================================================================
 //  REMIDIES PAYMENTS (STUDENT)

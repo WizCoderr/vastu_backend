@@ -24,34 +24,19 @@ export class InstructorIntent {
             const schema = z.object({
                 title: z.string().min(3),
                 description: z.string().optional(),
-                price: z.coerce.number().min(0, 'Price cannot be negative').transform(String),
+                price: z.coerce.number().min(0, 'Price cannot be negative'),
                 instructorId: z.string(),
                 s3Key: z.string().optional(),
                 s3Bucket: z.string().optional(),
                 accessDurationDays: z.number().int().positive().optional().nullable(),
-                paymentMode: z.enum(['INSTALLMENT', 'FULL_PAYMENT']).optional().default('INSTALLMENT'),
-                paymentPlans: z.array(z.object({
-                    stageName: z.string(),
-                    description: z.string().optional(),
-                    amount: z.number().positive(),
-                    dueAfterDays: z.number().int().min(0).default(0),
-                    orderIndex: z.number().int().min(0),
-                    startDate: z.coerce.date().optional().nullable(),
-                    endDate: z.coerce.date().optional().nullable()
-                })).optional().default([])
             });
             const data = schema.parse(req.body);
-
-            // Calculate total price from payment plans if they exist
-            const calculatedPrice = data.paymentPlans && data.paymentPlans.length > 0
-                ? data.paymentPlans.reduce((sum, p) => sum + p.amount, 0).toString()
-                : data.price;
 
             const course = await prisma.course.create({
                 data: {
                     title: data.title,
                     description: data.description ?? undefined,
-                    price: calculatedPrice,
+                    price: data.price.toString(),
                     thumbnail: data.s3Key ? `s3://${data.s3Bucket || process.env.AWS_BUCKET_NAME}/${data.s3Key}` : undefined,
                     s3Key: data.s3Key ?? undefined,
                     s3Bucket: data.s3Bucket || process.env.AWS_BUCKET_NAME || undefined,
@@ -59,21 +44,6 @@ export class InstructorIntent {
                     instructorId: data.instructorId,
                     published: true,
                     accessDurationDays: data.accessDurationDays ?? undefined,
-                    paymentMode: data.paymentMode,
-                    paymentPlans: {
-                        create: data.paymentPlans.map(p => ({
-                            stageName: p.stageName,
-                            description: p.description ?? undefined,
-                            amount: p.amount,
-                            dueAfterDays: p.dueAfterDays,
-                            orderIndex: p.orderIndex,
-                            startDate: p.startDate ?? undefined,
-                            endDate: p.endDate ?? undefined
-                        }))
-                    }
-                },
-                include: {
-                    paymentPlans: true
                 }
             });
 
@@ -576,25 +546,14 @@ export class InstructorIntent {
             const courseSchema = z.object({
                 title: z.string().optional(),
                 description: z.string().optional(),
-                price: z.coerce.number().min(0, 'Price cannot be negative').transform(String).optional(),
+                price: z.coerce.number().min(0, 'Price cannot be negative').optional(),
                 s3Key: z.string().optional().nullable(),
                 s3Bucket: z.string().optional().nullable(),
                 sections: z.array(sectionSchema).optional(),
                 courseResources: z.array(resourceSchema).optional(),
-                resources: z.array(resourceSchema).optional(), // Alias for frontend compatibility
+                resources: z.array(resourceSchema).optional(),
                 published: z.boolean().optional(),
                 accessDurationDays: z.number().int().positive().optional().nullable(),
-                paymentMode: z.enum(['INSTALLMENT', 'FULL_PAYMENT']).optional(),
-                paymentPlans: z.array(z.object({
-                    id: z.string().optional(),
-                    stageName: z.string(),
-                    description: z.string().optional(),
-                    amount: z.number().positive(),
-                    dueAfterDays: z.number().int().min(0).default(0),
-                    orderIndex: z.number().int().min(0),
-                    startDate: z.coerce.date().optional().nullable(),
-                    endDate: z.coerce.date().optional().nullable()
-                })).optional(),
             });
 
             const data = courseSchema.parse(req.body);
@@ -604,10 +563,10 @@ export class InstructorIntent {
                 const courseUpdateIs: any = {};
                 if (data.title) courseUpdateIs.title = data.title;
                 if (data.description !== undefined) courseUpdateIs.description = data.description;
-                if (data.price) courseUpdateIs.price = data.price;
+                if (data.price !== undefined && data.price > 0) courseUpdateIs.price = data.price.toString();
                 if (data.published !== undefined) courseUpdateIs.published = data.published;
                 if (data.accessDurationDays !== undefined) courseUpdateIs.accessDurationDays = data.accessDurationDays;
-                if (data.paymentMode) courseUpdateIs.paymentMode = data.paymentMode;
+
                 if (data.s3Key) {
                     courseUpdateIs.s3Key = data.s3Key;
                     courseUpdateIs.s3Bucket = data.s3Bucket || process.env.AWS_BUCKET_NAME;
@@ -620,47 +579,6 @@ export class InstructorIntent {
                     await tx.course.update({
                         where: { id: courseId },
                         data: courseUpdateIs,
-                    });
-                }
-
-                // 1.5 Sync Payment Plans (now including dates)
-                if (data.paymentPlans) {
-                    const incomingPlanIds = data.paymentPlans.map(p => p.id).filter(Boolean) as string[];
-                    // Delete removed plans
-                    await tx.coursePaymentPlan.deleteMany({
-                        where: { courseId, id: { notIn: incomingPlanIds } }
-                    });
-
-                    let totalAmount = 0;
-                    for (const plan of data.paymentPlans) {
-                        totalAmount += plan.amount;
-                        const planPayload = {
-                            courseId,
-                            stageName: plan.stageName,
-                            description: plan.description ?? undefined,
-                            amount: plan.amount,
-                            dueAfterDays: plan.dueAfterDays,
-                            orderIndex: plan.orderIndex,
-                            startDate: plan.startDate ?? undefined,
-                            endDate: plan.endDate ?? undefined
-                        };
-
-                        if (plan.id) {
-                            await tx.coursePaymentPlan.update({
-                                where: { id: plan.id },
-                                data: planPayload
-                            });
-                        } else {
-                            await tx.coursePaymentPlan.create({
-                                data: planPayload
-                            });
-                        }
-                    }
-
-                    // Update course price to the sum of installments
-                    await tx.course.update({
-                        where: { id: courseId },
-                        data: { price: totalAmount.toString() }
                     });
                 }
 

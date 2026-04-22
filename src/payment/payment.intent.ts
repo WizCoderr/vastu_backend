@@ -157,7 +157,7 @@ export class PaymentIntent {
     static async getPaymentApis(req: any, res: Response) {
         const apis = {
             student: [
-                { method: "POST", path: "/api/payment/course/order", description: "Create Razorpay order for course enrollment (Batch-aware)" },
+                { method: "POST", path: "/api/payment/course/order", description: "Create Razorpay order for course enrollment (Full Payment)" },
                 { method: "POST", path: "/api/payment/course/verify", description: "Verify Razorpay payment and enroll student" },
                 { method: "GET", path: "/api/payment/course/:courseId/plan", description: "Get available payment plans for a course" },
                 { method: "GET", path: "/api/payment/course/:courseId/my-payments", description: "Get student's payment history for a course" },

@@ -18,7 +18,6 @@ export class CourseReducer {
                     }
                 },
                 courseResources: true,
-                paymentPlans: true,
                 liveClasses: {
                     where: {
                         status: { in: ['SCHEDULED', 'LIVE'] },
@@ -31,16 +30,8 @@ export class CourseReducer {
         });
         const { getPresignedReadUrl, getDirectS3Url } = await import('../core/s3Service');
 
-        const now = new Date();
-
         // Map Decimal to number for DTO & Sign URLs
         const dtos = await Promise.all(courses.map(async (c) => {
-            // Find active payment plan (one that has dates and covers 'now')
-            const activePaymentPlanRaw = c.paymentPlans.find(p =>
-                p.startDate && p.endDate && now >= p.startDate && now <= p.endDate
-            );
-            const activePaymentPlan = activePaymentPlanRaw ? { ...activePaymentPlanRaw, amount: Number(activePaymentPlanRaw.amount) } : null;
-            
             return {
                 id: c.id,
                 title: c.title,
@@ -48,11 +39,7 @@ export class CourseReducer {
                 price: Number(c.price),
                 instructorId: c.instructorId,
                 thumbnail: c.s3Key ? await getDirectS3Url(c.s3Key, c.s3Bucket || undefined).catch(() => c.thumbnail) : c.thumbnail,
-                // Only show payment plans if not expired
-                paymentPlans: (c.endDate && now > c.endDate) ? [] : c.paymentPlans.map(p => ({ ...p, amount: Number(p.amount) })),
-                // number of students enrolled
                 studentCount: await prisma.enrollment.count({ where: { courseId: c.id } }),
-                activePaymentPlan: activePaymentPlan || null,
                 sections: await Promise.all(c.sections.map(async (s) => ({
                     id: s.id,
                     title: s.title,
@@ -205,20 +192,10 @@ export class CourseReducer {
                     }
                 },
                 courseResources: true,
-                paymentPlans: {
-                    orderBy: { orderIndex: 'asc' }
-                }
             }
         });
 
         if (!course) return Result.fail('Course not found');
-
-        const now = new Date();
-        const activePaymentPlanRaw = course.paymentPlans.find(p =>
-            p.startDate && p.endDate && now >= p.startDate && now <= p.endDate
-        );
-        const activePaymentPlan = activePaymentPlanRaw ? { ...activePaymentPlanRaw, amount: Number(activePaymentPlanRaw.amount) } : null;
-        const paymentPlans = (course.endDate && now > course.endDate) ? [] : course.paymentPlans.map(p => ({ ...p, amount: Number(p.amount) }));
 
         let enrollment = null;
         if (userId) {
@@ -295,8 +272,6 @@ export class CourseReducer {
             studentCount,
             sections: sectionsWithSignedUrls,
             resources,
-            paymentPlans,
-            activePaymentPlan: activePaymentPlan || null,
             liveClasses: liveClasses.length > 0 ? liveClasses : undefined
         });
     }

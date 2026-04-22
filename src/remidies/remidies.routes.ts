@@ -28,8 +28,15 @@ remidiesUserRouter.post('/cart', ctrl.addToCart as RequestHandler);
 remidiesUserRouter.put('/cart/:productId', ctrl.updateCartItem as RequestHandler);
 remidiesUserRouter.delete('/cart/:productId', ctrl.removeCartItem as RequestHandler);
 
+// Checkout
+remidiesUserRouter.post('/checkout', ctrl.createOrder as RequestHandler);
+
 // Order History (Read-only view)
 remidiesUserRouter.get('/orders', ctrl.getUserOrders as RequestHandler);
+
+// Coupons (user)
+remidiesUserRouter.get('/coupons', ctrl.getMyCoupons as RequestHandler);
+remidiesUserRouter.post('/coupons/validate', ctrl.validateCoupon as RequestHandler);
 
 // ─────────────────────────────────────────────
 // ADMIN CATALOG ROUTES  (mounted under /api/admin/remidies)
@@ -51,3 +58,16 @@ remidiesAdminRouter.delete('/products/:id', ctrl.deleteProduct as RequestHandler
 
 // Order management (Status)
 remidiesAdminRouter.put('/orders/:id/status', ctrl.updateOrderStatus as RequestHandler);
+
+// Coupon management (admin)
+remidiesAdminRouter.post('/coupons', ctrl.createCoupon as RequestHandler);
+remidiesAdminRouter.get('/coupons', ctrl.getCoupons as RequestHandler);
+remidiesAdminRouter.get('/coupons/:id', ctrl.getCoupon as RequestHandler);
+remidiesAdminRouter.put('/coupons/:id', ctrl.updateCoupon as RequestHandler);
+remidiesAdminRouter.delete('/coupons/:id', ctrl.deactivateCoupon as RequestHandler);
+
+// Bulk discount tier management (admin)
+remidiesAdminRouter.post('/bulk-tiers', ctrl.createBulkTier as RequestHandler);
+remidiesAdminRouter.get('/bulk-tiers', ctrl.getBulkTiers as RequestHandler);
+remidiesAdminRouter.put('/bulk-tiers/:id', ctrl.updateBulkTier as RequestHandler);
+remidiesAdminRouter.delete('/bulk-tiers/:id', ctrl.deleteBulkTier as RequestHandler);

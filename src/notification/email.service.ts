@@ -12,6 +12,9 @@ export interface ReceiptData {
     orderId?: string;
     serialNumber?: string;
     items?: Array<{ name: string; quantity: number; price: number }>;
+    subtotalAmount?: number;
+    bulkDiscount?: number;
+    couponDiscount?: number;
 }
 
 export interface PasswordResetEmailData {
@@ -129,6 +132,15 @@ export class EmailService {
                     <ul>
                         ${data.items.map(item => `<li>${item.name} x ${item.quantity}: ₹${item.price * item.quantity}</li>`).join('')}
                     </ul>
+                ` : ''}
+                ${(data.subtotalAmount !== undefined && (data.bulkDiscount || data.couponDiscount)) ? `
+                    <div style="background-color: #f0f7f0; padding: 15px; border-radius: 8px; margin: 10px 0;">
+                        <p><strong>Price Breakdown:</strong></p>
+                        <p>Subtotal: ₹${data.subtotalAmount.toFixed(2)}</p>
+                        ${data.bulkDiscount ? `<p>Bulk Discount: -₹${data.bulkDiscount.toFixed(2)}</p>` : ''}
+                        ${data.couponDiscount ? `<p>Coupon Discount: -₹${data.couponDiscount.toFixed(2)}</p>` : ''}
+                        <p><strong>Total Paid: ₹${data.amount.toFixed(2)}</strong></p>
+                    </div>
                 ` : ''}
                 <p>Regards,<br/>Vastu Arun Sharma Team</p>
             </div>

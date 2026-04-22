@@ -77,62 +77,18 @@ export class PaymentReducer {
     const exists = await EnrollmentRepository.findEnrollment(userId, courseId);
     if (exists) return Result.fail("Already enrolled");
 
-    const now = new Date();
-    const isCourseCompleted = course.endDate && now > course.endDate;
-    const useFullPayment =
-      isCourseCompleted || course.paymentMode === "FULL_PAYMENT";
-
     try {
       const { createRazorpayOrder } = await import("../core/razorpayService");
 
-      let amountToPay: number;
-      let stageName: string;
-      let planId: string | null = null;
-
-      if (useFullPayment) {
-        amountToPay = Number(course.price);
-        stageName = "Full Payment";
-      } else {
-        // Find if there are any date-restricted plans
-        const dateRestrictedPlans = course.paymentPlans.filter(
-          (p) => p.startDate && p.endDate,
-        );
-        const activePlan = dateRestrictedPlans.find(
-          (p) => now >= p.startDate! && now <= p.endDate!,
-        );
-
-        if (dateRestrictedPlans.length > 0 && !activePlan) {
-          return Result.fail("Enrollment is currently closed for this course.");
-        }
-
-        if (activePlan) {
-          amountToPay = Number(activePlan.amount);
-          stageName = activePlan.stageName;
-          planId = activePlan.id;
-        } else {
-          // Fallback to first payment plan if no date restrictions exist
-          if (course.paymentPlans.length === 0) {
-            return Result.fail(
-              "No payment plan configured for this course. Please contact administrator.",
-            );
-          }
-          const firstStage = course.paymentPlans[0];
-          amountToPay = Number(firstStage.amount);
-          stageName = firstStage.stageName;
-          planId = firstStage.id;
-        }
-      }
+      const amountToPay = Number(course.price);
+      const stageName = "Full Payment";
+      const planId = null;
 
       const shortUser = userId.substring(0, 8);
       const receipt = `rcpt_${shortUser}_${Date.now().toString().slice(-6)}`;
 
       const order = await createRazorpayOrder(amountToPay, "INR", receipt);
 
-      // Pre-create PENDING payment to track intent
-      const firstStageDueDate = planId
-        ? (course.paymentPlans.find((p) => p.id === planId)?.startDate ??
-          new Date())
-        : new Date();
       await prisma.studentPayment.create({
         data: {
           userId,
@@ -142,7 +98,7 @@ export class PaymentReducer {
           amount: amountToPay,
           razorpayOrderId: order.id,
           status: "PENDING",
-          dueDate: firstStageDueDate,
+          dueDate: new Date(),
         },
       });
 
@@ -154,7 +110,7 @@ export class PaymentReducer {
         amount: order.amount,
         currency: order.currency,
         keyId,
-        isInstallment: !useFullPayment,
+        isInstallment: false,
         stageName: stageName,
       });
     } catch (error: any) {
@@ -175,13 +131,7 @@ export class PaymentReducer {
       const valid = verifyRazorpaySignature(orderId, paymentId, signature);
       if (!valid) return Result.fail("Invalid payment signature");
 
-      const course = await prisma.course.findUnique({
-        where: { id: courseId },
-        include: {
-          paymentPlans: { orderBy: { orderIndex: "asc" } },
-        },
-      });
-
+      const course = await prisma.course.findUnique({ where: { id: courseId } });
       const user = await prisma.user.findUnique({ where: { id: userId } });
 
       if (!course || !user) return Result.fail("Course or User not found");
@@ -210,35 +160,8 @@ export class PaymentReducer {
         courseId,
       );
 
-      // If this is the FIRST payment, create enrollment and generate future stages
       if (!enrollment) {
-        enrollment = await EnrollmentRepository.createEnrollment(
-          userId,
-          courseId,
-        );
-
-        // Generate Future Payments
-        if (course.paymentPlans.length > 1) {
-          const enrollmentDate = new Date();
-          const futureStages = course.paymentPlans.slice(1);
-
-          for (const stage of futureStages) {
-            const dueDate = new Date(enrollmentDate);
-            dueDate.setDate(dueDate.getDate() + stage.dueAfterDays);
-
-            await prisma.studentPayment.create({
-              data: {
-                userId,
-                courseId,
-                planId: stage.id,
-                stageName: stage.stageName,
-                amount: stage.amount,
-                status: "PENDING",
-                dueDate: dueDate,
-              },
-            });
-          }
-        }
+        enrollment = await EnrollmentRepository.createEnrollment(userId, courseId);
       } else {
         // Check if we need to reactivate enrollment if it was overdue
         const overdueCount = await prisma.studentPayment.count({
@@ -388,7 +311,9 @@ export class PaymentReducer {
         where: { orderId },
         include: {
           user: true,
-          order: { include: { items: { include: { product: true } } } },
+          order: {
+            include: { items: { include: { product: true } } },
+          },
         },
       });
 
@@ -411,17 +336,24 @@ export class PaymentReducer {
 
       // Send Email Receipt for Products
       if (payment.user && payment.order) {
+        const order = payment.order;
+        const subtotal = Number(order.subtotalAmount);
+        const bulk = Number(order.bulkDiscount);
+        const coupon = Number(order.couponDiscount);
         await EmailService.sendPaymentReceipt({
           receiptId: rzpPaymentId,
           date: new Date(),
           userName: payment.user.name || "Customer",
           userEmail: payment.user.email,
           amount: Number(payment.amount),
-          items: payment.order.items.map((item) => ({
+          items: order.items.map((item) => ({
             name: item.product.name,
             quantity: item.quantity,
             price: Number(item.price),
           })),
+          subtotalAmount: subtotal,
+          bulkDiscount: bulk > 0 ? bulk : undefined,
+          couponDiscount: coupon > 0 ? coupon : undefined,
         });
       }
 

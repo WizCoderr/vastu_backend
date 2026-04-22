@@ -32,6 +32,8 @@ model User {
   orders Order[]
 
   enrolledCourseIds String[]
+
+  assignedCoupons Coupon[] @relation("UserCoupons")
 }
 
 model PasswordResetToken {
@@ -425,8 +427,11 @@ model Order {
   userId String
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  totalAmount Decimal     @db.Decimal(10, 2)
-  status      OrderStatus @default(PENDING)
+  subtotalAmount Decimal @db.Decimal(10, 2) @default(0)
+  bulkDiscount   Decimal @db.Decimal(10, 2) @default(0)
+  couponDiscount Decimal @db.Decimal(10, 2) @default(0)
+  totalAmount    Decimal @db.Decimal(10, 2)
+  status         OrderStatus @default(PENDING)
 
   shippingName    String
   shippingPhone   String
@@ -434,6 +439,10 @@ model Order {
   shippingCity    String
   shippingState   String
   shippingPostal  String
+
+  couponId    String?
+  coupon      Coupon?      @relation("OrderCoupon", fields: [couponId], references: [id])
+  couponUsage CouponUsage?
 
   payment Payment?
   items   OrderItem[]
@@ -457,4 +466,67 @@ model OrderItem {
   product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
 
   @@index([orderId])
+}
+
+//////////////////////////////////////////////////////
+// DISCOUNT / COUPONS
+//////////////////////////////////////////////////////
+
+enum DiscountType {
+  PERCENTAGE
+  FIXED
+}
+
+enum BulkTierType {
+  QUANTITY
+  VALUE
+}
+
+model Coupon {
+  id            String       @id @default(uuid())
+  code          String       @unique
+  discountType  DiscountType
+  discountValue Decimal      @db.Decimal(10, 2)
+  maxUses       Int
+  usedCount     Int          @default(0)
+  expiresAt     DateTime
+  isActive      Boolean      @default(true)
+
+  assignedUserId String
+  assignedUser   User         @relation("UserCoupons", fields: [assignedUserId], references: [id], onDelete: Cascade)
+
+  orders Order[]      @relation("OrderCoupon")
+  usages CouponUsage[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([code])
+  @@index([assignedUserId])
+}
+
+model CouponUsage {
+  id       String   @id @default(uuid())
+  couponId String
+  orderId  String   @unique
+  userId   String
+  usedAt   DateTime @default(now())
+
+  coupon Coupon @relation(fields: [couponId], references: [id], onDelete: Cascade)
+  order  Order  @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([couponId])
+  @@index([userId])
+}
+
+model BulkDiscountTier {
+  id              String       @id @default(uuid())
+  type            BulkTierType
+  minThreshold    Decimal      @db.Decimal(10, 2)
+  discountPercent Decimal      @db.Decimal(5, 2)
+  isActive        Boolean      @default(true)
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+
+  @@index([type, isActive])
 }

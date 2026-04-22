@@ -14,6 +14,13 @@ import {
   createOrderSchema,
   updateOrderStatusSchema,
   orderIdParamSchema,
+  createCouponSchema,
+  updateCouponSchema,
+  couponIdParamSchema,
+  validateCouponSchema,
+  createBulkTierSchema,
+  updateBulkTierSchema,
+  bulkTierIdParamSchema,
 } from './remidies.validation';
 import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
 import { getDirectS3Url } from '../core/s3Service';
@@ -248,8 +255,8 @@ export const removeCartItem: RequestHandler = async (req: AuthRequest, res, next
 export const createOrder: RequestHandler = async (req: AuthRequest, res, next) => {
   try {
     const userId = req.user!.userId;
-    const shippingDetails = createOrderSchema.parse(req).body;
-    const result = await intent.checkoutCart(userId, shippingDetails);
+    const { couponCode, ...shippingDetails } = createOrderSchema.parse(req).body;
+    const result = await intent.checkoutCart(userId, shippingDetails, couponCode);
     res.status(201).json({ success: true, data: result });
   } catch (error) { next(error); }
 };
@@ -268,5 +275,109 @@ export const updateOrderStatus: RequestHandler = async (req: AuthRequest, res, n
     const { status } = updateOrderStatusSchema.parse(req).body;
     const order = await intent.updateOrderStatus(id, status);
     res.status(200).json({ success: true, data: order });
+  } catch (error) { next(error); }
+};
+
+// ─────────────────────────────────────────────
+// COUPON (ADMIN)
+// ─────────────────────────────────────────────
+
+export const createCoupon: RequestHandler = async (req: AuthRequest, res, next) => {
+  try {
+    const data = createCouponSchema.parse(req).body;
+    const coupon = await intent.createCoupon(data as any);
+    res.status(201).json({ success: true, data: coupon });
+  } catch (error) { next(error); }
+};
+
+export const getCoupons: RequestHandler = async (req, res, next) => {
+  try {
+    const assignedUserId = req.query.assignedUserId as string | undefined;
+    const isActive = req.query.isActive !== undefined ? req.query.isActive === 'true' : undefined;
+    const coupons = await intent.getCoupons({ assignedUserId, isActive });
+    res.status(200).json({ success: true, data: coupons });
+  } catch (error) { next(error); }
+};
+
+export const getCoupon: RequestHandler = async (req, res, next) => {
+  try {
+    const { id } = couponIdParamSchema.parse(req).params;
+    const coupon = await intent.getCoupon(id);
+    res.status(200).json({ success: true, data: coupon });
+  } catch (error) { next(error); }
+};
+
+export const updateCoupon: RequestHandler = async (req, res, next) => {
+  try {
+    const { id } = updateCouponSchema.parse(req).params;
+    const data = updateCouponSchema.parse(req).body;
+    const coupon = await intent.updateCoupon(id, data);
+    res.status(200).json({ success: true, data: coupon });
+  } catch (error) { next(error); }
+};
+
+export const deactivateCoupon: RequestHandler = async (req, res, next) => {
+  try {
+    const { id } = couponIdParamSchema.parse(req).params;
+    await intent.deactivateCoupon(id);
+    res.status(200).json({ success: true, message: 'Coupon deactivated' });
+  } catch (error) { next(error); }
+};
+
+// ─────────────────────────────────────────────
+// COUPON (USER)
+// ─────────────────────────────────────────────
+
+export const getMyCoupons: RequestHandler = async (req: AuthRequest, res, next) => {
+  try {
+    const userId = req.user!.userId;
+    const coupons = await intent.getMyCoupons(userId);
+    res.status(200).json({ success: true, data: coupons });
+  } catch (error) { next(error); }
+};
+
+export const validateCoupon: RequestHandler = async (req: AuthRequest, res, next) => {
+  try {
+    const userId = req.user!.userId;
+    const { couponCode } = validateCouponSchema.parse(req).body;
+    const result = await intent.validateCouponForUser(couponCode, userId);
+    res.status(200).json({ success: true, data: result });
+  } catch (error) { next(error); }
+};
+
+// ─────────────────────────────────────────────
+// BULK DISCOUNT TIER (ADMIN)
+// ─────────────────────────────────────────────
+
+export const createBulkTier: RequestHandler = async (req, res, next) => {
+  try {
+    const data = createBulkTierSchema.parse(req).body;
+    const tier = await intent.createBulkTier(data as any);
+    res.status(201).json({ success: true, data: tier });
+  } catch (error) { next(error); }
+};
+
+export const getBulkTiers: RequestHandler = async (req, res, next) => {
+  try {
+    const activeOnly = req.query.activeOnly === 'true';
+    const tiers = await intent.getBulkTiers(activeOnly);
+    res.status(200).json({ success: true, data: tiers });
+  } catch (error) { next(error); }
+};
+
+export const updateBulkTier: RequestHandler = async (req, res, next) => {
+  try {
+    const { id } = updateBulkTierSchema.parse(req).params;
+    const data = updateBulkTierSchema.parse(req).body;
+    const tier = await intent.updateBulkTier(id, data);
+    res.status(200).json({ success: true, data: tier });
+  } catch (error) { next(error); }
+};
+
+export const deleteBulkTier: RequestHandler = async (req, res, next) => {
+  try {
+    const { id } = bulkTierIdParamSchema.parse(req).params;
+    await intent.deleteBulkTier(id);
+    res.status(200).json({ success: true, message: 'Bulk discount tier deleted' });
   } catch (error) { next(error); }
 };

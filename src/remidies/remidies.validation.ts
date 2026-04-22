@@ -94,6 +94,7 @@ export const createOrderSchema = z.object({
     shippingCity: z.string().min(1, 'Shipping city is required'),
     shippingState: z.string().min(1, 'Shipping state is required'),
     shippingPostal: z.string().min(1, 'Shipping postal code is required'),
+    couponCode: z.string().min(1).optional(),
   }),
 });
 
@@ -110,4 +111,65 @@ export const orderIdParamSchema = z.object({
   params: z.object({
     id: idSchema,
   }),
+});
+
+// ─────────────────────────────────────────────
+// COUPON
+// ─────────────────────────────────────────────
+
+export const createCouponSchema = z.object({
+  body: z.object({
+    code: z.string().min(3).max(32),
+    discountType: z.enum(['PERCENTAGE', 'FIXED']),
+    discountValue: z.number().positive('Discount value must be positive'),
+    maxUses: z.number().int().positive('Max uses must be at least 1'),
+    expiresAt: z.string().datetime('Invalid expiry date'),
+    assignedUserId: idSchema,
+  }),
+});
+
+export const updateCouponSchema = z.object({
+  params: z.object({ id: idSchema }),
+  body: z.object({
+    discountValue: z.number().positive().optional(),
+    maxUses: z.number().int().positive().optional(),
+    expiresAt: z.string().datetime().optional(),
+    isActive: z.boolean().optional(),
+  }),
+});
+
+export const couponIdParamSchema = z.object({
+  params: z.object({ id: idSchema }),
+});
+
+export const validateCouponSchema = z.object({
+  body: z.object({
+    couponCode: z.string().min(1, 'Coupon code is required'),
+  }),
+});
+
+// ─────────────────────────────────────────────
+// BULK DISCOUNT TIER
+// ─────────────────────────────────────────────
+
+export const createBulkTierSchema = z.object({
+  body: z.object({
+    type: z.enum(['QUANTITY', 'VALUE']),
+    minThreshold: z.number().positive('Threshold must be positive'),
+    discountPercent: z.number().positive().max(100, 'Discount cannot exceed 100%'),
+    isActive: z.boolean().optional(),
+  }),
+});
+
+export const updateBulkTierSchema = z.object({
+  params: z.object({ id: idSchema }),
+  body: z.object({
+    minThreshold: z.number().positive().optional(),
+    discountPercent: z.number().positive().max(100).optional(),
+    isActive: z.boolean().optional(),
+  }),
+});
+
+export const bulkTierIdParamSchema = z.object({
+  params: z.object({ id: idSchema }),
 });
