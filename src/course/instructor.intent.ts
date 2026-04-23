@@ -690,9 +690,19 @@ export class InstructorIntent {
                                             lecPayload.videoUrl = ''; // Clear if s3Key null and no replacement url
                                         }
                                     }
-                                } else if (lecData.videoUrl !== undefined) {
-                                    lecPayload.videoUrl = lecData.videoUrl;
-                                    lecPayload.videoProvider = lecData.videoProvider || 'external';
+                                } else if (lecData.videoUrl !== undefined || (lecData as any).url !== undefined) {
+                                    const finalVideoUrl = lecData.videoUrl || (lecData as any).url;
+                                    lecPayload.videoUrl = finalVideoUrl;
+                                    
+                                    if (finalVideoUrl.includes('youtube.com') || finalVideoUrl.includes('youtu.be')) {
+                                        lecPayload.videoProvider = 'youtube';
+                                    } else {
+                                        lecPayload.videoProvider = lecData.videoProvider || 'external';
+                                    }
+                                    
+                                    // If we are setting a direct videoUrl, clear S3 fields to prevent override
+                                    lecPayload.s3Key = null;
+                                    lecPayload.s3Bucket = null;
                                 }
 
                                 if (lecData.id) {
