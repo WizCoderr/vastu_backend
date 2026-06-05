@@ -7,6 +7,7 @@ import fs from 'fs';
 import path from 'path';
 import { PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
+import { sectionOrderBy, sortSectionsByOrder, withSectionIndex } from './section.utils';
 
 const s3Client = new S3Client({
     region: process.env.AWS_REGION || 'us-east-1',
@@ -70,6 +71,7 @@ export class InstructorIntent {
                 orderBy: { id: 'desc' },
                 include: {
                     sections: {
+                        orderBy: sectionOrderBy,
                         include: {
                             lectures: true,
                             liveClasses: {
@@ -108,8 +110,15 @@ export class InstructorIntent {
                         return { ...r, url };
                     }));
 
+                    const sections = sortSectionsByOrder(course.sections).map((section, i) =>
+                        withSectionIndex({
+                            ...section,
+                            lectures: section.lectures,
+                            liveClasses: section.liveClasses,
+                        }, i + 1)
+                    );
                     // Sign lectures
-                    const sections = await Promise.all(course.sections.map(async (section) => {
+                    const signedSections = await Promise.all(sections.map(async (section) => {
                         const lectures = await Promise.all(section.lectures.map(async (lecture) => {
                             let videoUrl = lecture.videoUrl;
                             if (lecture.s3Key) {
@@ -119,12 +128,12 @@ export class InstructorIntent {
                             }
                             return { ...lecture, videoUrl };
                         }));
-                        return { ...section, lectures, liveClasses: section.liveClasses };
+                        return { ...section, lectures };
                     }));
 
                     // Count students for instructor/admin dashboard
                     const studentCount = await prisma.enrollment.count({ where: { courseId: course.id } });
-                    return { ...course, thumbnail: thumbUrl, sections, courseResources, studentCount, liveClasses: course.liveClasses };
+                    return { ...course, thumbnail: thumbUrl, sections: signedSections, courseResources, studentCount, liveClasses: course.liveClasses };
                 })
             );
 
@@ -171,10 +180,13 @@ export class InstructorIntent {
         try {
             const sections = await prisma.section.findMany({
                 where: { courseId },
-                include: { lectures: true }, // Include lectures as they are usually needed
-                orderBy: { id: 'asc' } // Or by some order index if it exists, otherwise ID
+                include: { lectures: true },
+                orderBy: sectionOrderBy,
             });
-            res.json({ success: true, data: sections });
+            const orderedSections = sortSectionsByOrder(sections).map((section, i) =>
+                withSectionIndex(section, i + 1)
+            );
+            res.json({ success: true, data: orderedSections });
         } catch (error) {
             logger.error('InstructorIntent.getAllSections: Failed to fetch sections', { error, courseId });
             res.status(500).json({ success: false, error: 'Failed to fetch sections' });
@@ -188,9 +200,14 @@ export class InstructorIntent {
         try {
             const schema = z.object({ title: z.string().min(3) });
             const data = schema.parse(req.body);
-            const section = await prisma.section.create({ data: { title: data.title, courseId } });
+            const maxSection = await prisma.section.aggregate({
+                where: { courseId },
+                _max: { orderIndex: true },
+            });
+            const orderIndex = (maxSection._max.orderIndex ?? 0) + 1;
+            const section = await prisma.section.create({ data: { title: data.title, courseId, orderIndex } });
             logger.info('InstructorIntent.createSection: Section created successfully', { sectionId: section.id, courseId });
-            res.status(201).json(section);
+            res.status(201).json(withSectionIndex(section, orderIndex));
         } catch (error) {
             logger.error('InstructorIntent.createSection: Failed to create section', { courseId, error });
             res.status(400).json({ error: 'Failed to create section' });
@@ -328,13 +345,16 @@ export class InstructorIntent {
                 return res.status(400).json({ error: 'Missing videoUrl' });
             }
 
+            const isYouTube = finalVideoUrl.includes('youtube.com') || finalVideoUrl.includes('youtu.be');
+            const detectedProvider = isYouTube ? 'youtube' : 'external';
+
             // Just register the lecture
             const lecture = await prisma.lecture.create({
                 data: {
                     title,
                     sectionId,
                     videoUrl: finalVideoUrl,
-                    videoProvider: 'youtube',
+                    videoProvider: detectedProvider,
                     muxReady: true,
                 },
             });
@@ -377,7 +397,7 @@ export class InstructorIntent {
             const course = await prisma.course.findUnique({
                 where: { id: courseId },
                 include: {
-                    sections: { include: { lectures: true } },
+                    sections: { orderBy: sectionOrderBy, include: { lectures: true } },
                     courseResources: true
                 },
             });
@@ -633,7 +653,9 @@ export class InstructorIntent {
                         await tx.section.deleteMany({ where: { id: { in: delIds } } });
                     }
 
-                    for (const sectionData of data.sections) {
+                    for (let i = 0; i < data.sections.length; i++) {
+                        const sectionData = data.sections[i];
+                        const orderIndex = i + 1;
                         let sectionId = sectionData.id;
 
                         // Check if section exists if ID is provided
@@ -642,17 +664,17 @@ export class InstructorIntent {
                             if (existingSection) {
                                 await tx.section.update({
                                     where: { id: sectionId },
-                                    data: { title: sectionData.title }
+                                    data: { title: sectionData.title, orderIndex }
                                 });
                             } else {
                                 const newSec = await tx.section.create({
-                                    data: { title: sectionData.title, courseId }
+                                    data: { title: sectionData.title, courseId, orderIndex }
                                 });
                                 sectionId = newSec.id;
                             }
                         } else {
                             const newSec = await tx.section.create({
-                                data: { title: sectionData.title, courseId }
+                                data: { title: sectionData.title, courseId, orderIndex }
                             });
                             sectionId = newSec.id;
                         }
@@ -737,7 +759,7 @@ export class InstructorIntent {
             const updatedCourse = await prisma.course.findUnique({
                 where: { id: courseId },
                 include: {
-                    sections: { include: { lectures: true } },
+                    sections: { orderBy: sectionOrderBy, include: { lectures: true } },
                     courseResources: true
                 }
             });
@@ -767,18 +789,20 @@ export class InstructorIntent {
                 }));
 
                 // Sign Lectures
-                const sections = await Promise.all(updatedCourse.sections.map(async (section) => {
-                    const lectures = await Promise.all(section.lectures.map(async (lecture) => {
-                        let videoUrl = lecture.videoUrl;
-                        if (lecture.s3Key) {
-                            try {
-                                videoUrl = await getPresignedReadUrl(lecture.s3Key, lecture.s3Bucket || undefined);
-                            } catch (e) { }
-                        }
-                        return { ...lecture, videoUrl };
-                    }));
-                    return { ...section, lectures };
-                }));
+                const sections = await Promise.all(
+                    sortSectionsByOrder(updatedCourse.sections).map(async (section, i) => {
+                        const lectures = await Promise.all(section.lectures.map(async (lecture) => {
+                            let videoUrl = lecture.videoUrl;
+                            if (lecture.s3Key) {
+                                try {
+                                    videoUrl = await getPresignedReadUrl(lecture.s3Key, lecture.s3Bucket || undefined);
+                                } catch (e) { }
+                            }
+                            return { ...lecture, videoUrl };
+                        }));
+                        return withSectionIndex({ ...section, lectures }, i + 1);
+                    })
+                );
 
                 response = {
                     ...updatedCourse,
@@ -805,6 +829,7 @@ export class InstructorIntent {
                 where: { id: courseId },
                 include: {
                     sections: {
+                        orderBy: sectionOrderBy,
                         include: {
                             lectures: true,
                             liveClasses: {
@@ -854,20 +879,22 @@ export class InstructorIntent {
             // If UI needs to play, it calls the stream-url endpoint. Or we can sign them here if needed.
             // Let's sign them for convenience if it's the instructor viewing.
 
-            const sections = await Promise.all(course.sections.map(async (section) => {
-                const lectures = await Promise.all(section.lectures.map(async (lecture) => {
-                    let videoUrl = lecture.videoUrl;
-                    if (lecture.s3Key) {
-                        try {
-                            videoUrl = await getPresignedReadUrl(lecture.s3Key, lecture.s3Bucket || undefined);
-                        } catch (e) {
-                            logger.error('Failed to sign video', { s3Key: lecture.s3Key });
+            const sections = await Promise.all(
+                sortSectionsByOrder(course.sections).map(async (section, i) => {
+                    const lectures = await Promise.all(section.lectures.map(async (lecture) => {
+                        let videoUrl = lecture.videoUrl;
+                        if (lecture.s3Key) {
+                            try {
+                                videoUrl = await getPresignedReadUrl(lecture.s3Key, lecture.s3Bucket || undefined);
+                            } catch (e) {
+                                logger.error('Failed to sign video', { s3Key: lecture.s3Key });
+                            }
                         }
-                    }
-                    return { ...lecture, videoUrl };
-                }));
-                return { ...section, lectures, liveClasses: section.liveClasses };
-            }));
+                        return { ...lecture, videoUrl };
+                    }));
+                    return withSectionIndex({ ...section, lectures, liveClasses: section.liveClasses }, i + 1);
+                })
+            );
 
             res.json({
                 success: true,

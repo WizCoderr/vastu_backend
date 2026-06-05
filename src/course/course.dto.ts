@@ -11,6 +11,9 @@ export interface LectureDto {
 export interface SectionDto {
     id: string;
     title: string;
+    index: number;
+    classNumber: number;
+    orderIndex: number;
     lectures: LectureDto[];
     liveClasses?: LiveClassDto[];
 }
@@ -22,7 +25,6 @@ export interface CourseResourceDto {
     type: 'FREE' | 'PAID';
 }
 
-// Basic Live Class DTO for Course Details
 export interface LiveClassDto {
     id: string;
     title: string;
@@ -32,13 +34,6 @@ export interface LiveClassDto {
     status: string;
     meetingUrl: string | null;
     sectionId?: string | null;
-}
-
-export interface SectionDto {
-    id: string;
-    title: string;
-    lectures: LectureDto[];
-    liveClasses?: LiveClassDto[];
 }
 
 export interface CoursePaymentPlanDto {

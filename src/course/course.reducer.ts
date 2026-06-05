@@ -1,6 +1,7 @@
 import { prisma } from "../core/prisma";
 import { Result } from '../core/result';
 import { CourseDto } from './course.dto';
+import { mapCourseSections, sectionOrderBy, sortSectionsByOrder, withSectionIndex } from './section.utils';
 
 export class CourseReducer {
     static async listCourses(): Promise<Result<CourseDto[]>> {
@@ -9,6 +10,7 @@ export class CourseReducer {
             orderBy: { id: 'desc' },
             include: {
                 sections: {
+                    orderBy: sectionOrderBy,
                     include: {
                         lectures: true,
                         liveClasses: {
@@ -40,26 +42,9 @@ export class CourseReducer {
                 instructorId: c.instructorId,
                 thumbnail: c.s3Key ? await getDirectS3Url(c.s3Key, c.s3Bucket || undefined).catch(() => c.thumbnail) : c.thumbnail,
                 studentCount: await prisma.enrollment.count({ where: { courseId: c.id } }),
-                sections: await Promise.all(c.sections.map(async (s) => ({
-                    id: s.id,
-                    title: s.title,
-                    lectures: await Promise.all(s.lectures.map(async (l) => ({
-                        id: l.id,
-                        title: l.title,
-                        videoUrl: l.s3Key ? await getPresignedReadUrl(l.s3Key, l.s3Bucket || undefined).catch(() => l.videoUrl) : l.videoUrl,
-                        videoProvider: l.videoProvider
-                    }))),
-                    liveClasses: s.liveClasses?.map(lc => ({
-                        id: lc.id,
-                        title: lc.title,
-                        description: lc.description,
-                        scheduledAt: lc.scheduledAt,
-                        durationMinutes: lc.durationMinutes,
-                        status: lc.status,
-                        meetingUrl: lc.meetingUrl,
-                        sectionId: lc.sectionId
-                    }))
-                }))),
+                sections: await mapCourseSections(c.sections, (l) =>
+                    getPresignedReadUrl(l.s3Key!, l.s3Bucket || undefined)
+                ),
                 resources: await Promise.all(c.courseResources
                     .map(async (r) => ({
                         id: r.id,
@@ -97,6 +82,7 @@ export class CourseReducer {
                 course: {
                     include: {
                         sections: {
+                            orderBy: sectionOrderBy,
                             include: {
                                 lectures: true,
                                 liveClasses: {
@@ -135,26 +121,9 @@ export class CourseReducer {
                 serialNumber: e.serialNumber,
                 // number of students enrolled
                 studentCount: await prisma.enrollment.count({ where: { courseId: c.id } }),
-                sections: await Promise.all(c.sections.map(async (s) => ({
-                    id: s.id,
-                    title: s.title,
-                    lectures: await Promise.all(s.lectures.map(async (l) => ({
-                        id: l.id,
-                        title: l.title,
-                        videoUrl: l.s3Key ? await getPresignedReadUrl(l.s3Key, l.s3Bucket || undefined).catch(() => l.videoUrl) : l.videoUrl,
-                        videoProvider: l.videoProvider
-                    }))),
-                    liveClasses: s.liveClasses?.map(lc => ({
-                        id: lc.id,
-                        title: lc.title,
-                        description: lc.description,
-                        scheduledAt: lc.scheduledAt,
-                        durationMinutes: lc.durationMinutes,
-                        status: lc.status,
-                        meetingUrl: lc.meetingUrl,
-                        sectionId: lc.sectionId
-                    }))
-                }))),
+                sections: await mapCourseSections(c.sections, (l) =>
+                    getPresignedReadUrl(l.s3Key!, l.s3Bucket || undefined)
+                ),
                 resources: await Promise.all(c.courseResources
                     .map(async (r) => ({
                         id: r.id,
@@ -183,6 +152,7 @@ export class CourseReducer {
             where: { id: courseId },
             include: {
                 sections: {
+                    orderBy: sectionOrderBy,
                     include: {
                         lectures: true,
                         liveClasses: {
@@ -214,26 +184,9 @@ export class CourseReducer {
             ? await getDirectS3Url(course.s3Key, course.s3Bucket || undefined).catch(() => course.thumbnail)
             : course.thumbnail;
 
-        const sectionsWithSignedUrls = await Promise.all(course.sections.map(async (s) => ({
-            id: s.id,
-            title: s.title,
-            lectures: await Promise.all(s.lectures.map(async (l) => ({
-                id: l.id,
-                title: l.title,
-                videoUrl: l.s3Key ? await getPresignedReadUrl(l.s3Key, l.s3Bucket || undefined).catch(() => l.videoUrl) : l.videoUrl,
-                videoProvider: l.videoProvider
-            }))),
-            liveClasses: s.liveClasses?.map(lc => ({
-                id: lc.id,
-                title: lc.title,
-                description: lc.description,
-                scheduledAt: lc.scheduledAt,
-                durationMinutes: lc.durationMinutes,
-                status: lc.status,
-                meetingUrl: lc.meetingUrl,
-                sectionId: lc.sectionId
-            }))
-        })));
+        const sectionsWithSignedUrls = await mapCourseSections(course.sections, (l) =>
+            getPresignedReadUrl(l.s3Key!, l.s3Bucket || undefined)
+        );
 
         const resources = await Promise.all(course.courseResources.map(async (r) => {
             const url = r.s3Key
@@ -289,6 +242,7 @@ export class CourseReducer {
 
         const sections = await prisma.section.findMany({
             where: { courseId },
+            orderBy: sectionOrderBy,
             include: {
                 lectures: {
                     include: {
@@ -302,13 +256,19 @@ export class CourseReducer {
 
         const { getPresignedReadUrl } = await import('../core/s3Service');
 
-        const sectionsWithSignedUrls = await Promise.all(sections.map(async (s) => ({
-            ...s,
-            lectures: await Promise.all(s.lectures.map(async (l) => ({
-                ...l,
-                videoUrl: l.s3Key ? await getPresignedReadUrl(l.s3Key, l.s3Bucket || undefined).catch(() => l.videoUrl) : l.videoUrl
-            })))
-        })));
+        const sectionsWithSignedUrls = await Promise.all(
+            sortSectionsByOrder(sections).map(async (s, i) =>
+                withSectionIndex({
+                    ...s,
+                    lectures: await Promise.all(s.lectures.map(async (l) => ({
+                        ...l,
+                        videoUrl: l.s3Key
+                            ? await getPresignedReadUrl(l.s3Key, l.s3Bucket || undefined).catch(() => l.videoUrl)
+                            : l.videoUrl,
+                    }))),
+                }, i + 1)
+            )
+        );
 
         return Result.ok(sectionsWithSignedUrls);
     }

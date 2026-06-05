@@ -123,13 +123,16 @@ model CourseResource {
 }
 
 model Section {
-  id       String @id @default(uuid())
-  title    String
-  courseId String
+  id         String @id @default(uuid())
+  title      String
+  courseId   String
+  orderIndex Int    @default(1)
 
   course      Course      @relation(fields: [courseId], references: [id], onDelete: Cascade)
   lectures    Lecture[]
   liveClasses LiveClass[]
+
+  @@index([courseId, orderIndex])
 }
 
 model Lecture {
