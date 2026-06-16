@@ -29,6 +29,16 @@ export const config = {
         meetingUrlWindowMinutes: parseInteger(process.env.MEETING_URL_WINDOW_MINUTES, 15),
     },
 
+    // Google Places API (public reviews on website)
+    google: {
+        placesApiKey: process.env.GOOGLE_PLACES_API_KEY,
+        placeId: process.env.GOOGLE_PLACE_ID,
+        placeSearchQuery: process.env.GOOGLE_PLACE_SEARCH_QUERY || 'Vastu Arun Sharma Delhi',
+        reviewsUrl:
+            process.env.GOOGLE_REVIEWS_URL ||
+            'https://www.google.com/search?q=Vastu+Arun+Sharma+Delhi+reviews',
+    },
+
     // SMTP Config for Nodemailer
     smtp: {
         host: process.env.SMTP_HOST || 'smtp.gmail.com',

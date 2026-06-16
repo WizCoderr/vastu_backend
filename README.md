@@ -64,6 +64,12 @@ This project strictly follows the **MVI (Model-View-Intent)** architecture:
     SMTP_USER="smtp-user"
     SMTP_PASS="smtp-pass"
     MAIL_FROM="Vastu Arun Sharma <noreply@vastuarunsharma.com>"
+
+    # Google Places API (live reviews on website)
+    GOOGLE_PLACES_API_KEY="your-google-places-api-key"
+    GOOGLE_PLACE_ID="ChIJ..."  # optional if using search query below
+    GOOGLE_PLACE_SEARCH_QUERY="Vastu Arun Sharma Delhi"
+    GOOGLE_REVIEWS_URL="https://maps.google.com/..."
     ```
 
 3.  **Database Migration**
