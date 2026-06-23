@@ -44,7 +44,7 @@ report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 certs
 brain
 .claude
-*.postman_collection.json
+.wwebjs_auth
 
 # markdown files: ignore all but README.md
 *.md

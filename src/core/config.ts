@@ -48,4 +48,14 @@ export const config = {
         pass: process.env.SMTP_PASS,
         from: process.env.SMTP_FROM || 'noreply@vastuarunsharma.com',
     },
+
+    whatsapp: {
+        adminPhone: process.env.WHATSAPP_ADMIN_PHONE || '',
+        sessionPath: process.env.WHATSAPP_SESSION_PATH || '.wwebjs_auth',
+        enabled: process.env.WHATSAPP_ENABLED !== 'false',
+    },
+
+    stock: {
+        defaultLowStockThreshold: parseInteger(process.env.DEFAULT_LOW_STOCK_THRESHOLD, 5),
+    },
 };

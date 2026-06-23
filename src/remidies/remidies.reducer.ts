@@ -1,5 +1,6 @@
 import { prisma } from '../core/prisma';
-import { OrderStatus, PaymentStatus, PaymentType, PaymentProvider, DiscountType, BulkTierType } from '../generated/prisma/client';
+import { OrderStatus, PaymentStatus, PaymentType, PaymentProvider, DiscountType, BulkTierType, StockMovementType } from '../generated/prisma/client';
+import { StockService } from '../stock/stock.service';
 
 // --- CATEGORY ---
 
@@ -47,13 +48,41 @@ export const getCategoryById = async (categoryId: string) => {
 export const createProduct = async (data: {
   name: string;
   description?: string;
-  image?: string;
+  images?: string[];
   price: number;
   stock: number;
   isActive?: boolean;
   categoryId: string;
+  lowStockThreshold?: number | null;
 }) => {
-  return prisma.product.create({ data });
+  return prisma.$transaction(async (tx) => {
+    const product = await tx.product.create({
+      data: {
+        name: data.name,
+        description: data.description,
+        images: data.images ?? [],
+        price: data.price,
+        stock: 0,
+        isActive: data.isActive,
+        categoryId: data.categoryId,
+        lowStockThreshold: data.lowStockThreshold,
+      },
+    });
+
+    if (data.stock > 0) {
+      await StockService.recordStockChange(tx, {
+        productId: product.id,
+        quantityChange: data.stock,
+        type: StockMovementType.INITIAL,
+        reason: 'Initial stock',
+      });
+    }
+
+    return tx.product.findUnique({
+      where: { id: product.id },
+      include: { category: true },
+    });
+  });
 };
 
 export const updateProduct = async (productId: string, data: Partial<Parameters<typeof createProduct>[0]>) => {
@@ -179,23 +208,15 @@ export const createOrderWithTransaction = async (
     for (const item of cartItems) {
       const product = await tx.product.findUnique({
         where: { id: item.productId },
-        select: { stock: true },
+        select: { stock: true, name: true },
       });
 
       if (!product || product.stock < item.quantity) {
-        throw new Error(`Insufficient stock for product ${item.productId}`);
+        throw new Error(`Insufficient stock for product ${product?.name ?? item.productId}`);
       }
     }
 
-    // 2. Decrement stock
-    for (const item of cartItems) {
-      await tx.product.update({
-        where: { id: item.productId },
-        data: { stock: { decrement: item.quantity } },
-      });
-    }
-
-    // 3. Create the Order
+    // 2. Create the Order
     const order = await tx.order.create({
       data: {
         userId,
@@ -216,6 +237,18 @@ export const createOrderWithTransaction = async (
       },
       include: { items: true },
     });
+
+    // 3. Decrement stock with audit trail
+    const stockChanges: { productId: string; previousStock: number; newStock: number; productName: string }[] = [];
+    for (const item of cartItems) {
+      const change = await StockService.recordStockChange(tx, {
+        productId: item.productId,
+        quantityChange: -item.quantity,
+        type: StockMovementType.ORDER,
+        referenceId: order.id,
+      });
+      stockChanges.push({ productId: item.productId, ...change });
+    }
 
     // 4. If coupon applied: create usage record + increment count with race-condition guard
     if (breakdown.appliedCouponId && breakdown.couponMaxUses !== null) {
@@ -254,7 +287,7 @@ export const createOrderWithTransaction = async (
       });
     }
 
-    return { order, payment, breakdown };
+    return { order, payment, breakdown, stockChanges };
   });
 };
 

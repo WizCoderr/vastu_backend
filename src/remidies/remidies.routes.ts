@@ -52,12 +52,20 @@ remidiesAdminRouter.delete('/categories/:id', ctrl.deleteCategory as RequestHand
 // Product management
 remidiesAdminRouter.get('/products/all', ctrl.getAllProducts as RequestHandler);
 remidiesAdminRouter.get('/products', ctrl.getProducts as RequestHandler);
-remidiesAdminRouter.post('/products', upload.single('image'), ctrl.createProduct as RequestHandler);
-remidiesAdminRouter.put('/products/:id', upload.single('image'), ctrl.updateProduct as RequestHandler);
+remidiesAdminRouter.post('/products', upload.array('images', 10), ctrl.createProduct as RequestHandler);
+remidiesAdminRouter.put('/products/:id', upload.array('images', 10), ctrl.updateProduct as RequestHandler);
+remidiesAdminRouter.delete('/products/:id/images', ctrl.deleteProductImage as RequestHandler);
 remidiesAdminRouter.delete('/products/:id', ctrl.deleteProduct as RequestHandler);
 
 // Order management (Status)
 remidiesAdminRouter.put('/orders/:id/status', ctrl.updateOrderStatus as RequestHandler);
+
+// Stock management
+remidiesAdminRouter.get('/stock/low', ctrl.getLowStockProducts as RequestHandler);
+remidiesAdminRouter.post('/products/:id/stock/adjust', ctrl.adjustProductStock as RequestHandler);
+remidiesAdminRouter.get('/products/:id/stock/history', ctrl.getProductStockHistory as RequestHandler);
+remidiesAdminRouter.get('/settings/stock', ctrl.getStockSettings as RequestHandler);
+remidiesAdminRouter.put('/settings/stock', ctrl.updateStockSettings as RequestHandler);
 
 // Coupon management (admin)
 remidiesAdminRouter.post('/coupons', ctrl.createCoupon as RequestHandler);

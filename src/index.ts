@@ -3,6 +3,14 @@ import app from './app';
 import { config } from './config';
 import logger from './utils/logger';
 import { startNotificationWorker } from './notification/notification.worker';
+import { WhatsAppService } from './notification/whatsapp.service';
+
+const startBackgroundServices = () => {
+    startNotificationWorker();
+    WhatsAppService.initClient().catch((error) => {
+        logger.error('Failed to initialize WhatsApp client', { error });
+    });
+};
 
 const startServer = () => {
     app.listen(config.port, () => {
@@ -18,7 +26,7 @@ if ((numCPUs > 1 || forceCluster) && cluster.isPrimary) {
     logger.info(`Forking ${numCPUs} workers...`);
 
     // Only start notification worker once on the primary process
-    startNotificationWorker();
+    startBackgroundServices();
 
     for (let i = 0; i < numCPUs; i++) {
         cluster.fork();
@@ -32,7 +40,7 @@ if ((numCPUs > 1 || forceCluster) && cluster.isPrimary) {
     if (numCPUs === 1 && !forceCluster) {
         logger.info('Running in single process mode (optimized for 1 vCPU)');
         // In single-process mode, start notification worker here (no cluster primary)
-        startNotificationWorker();
+        startBackgroundServices();
     }
     startServer();
 }

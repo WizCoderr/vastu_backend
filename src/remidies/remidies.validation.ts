@@ -32,11 +32,12 @@ export const createProductSchema = z.object({
   body: z.object({
     name: z.string().min(1, 'Name is required'),
     description: z.string().optional(),
-    image: z.string().optional(),
+    images: z.array(z.string()).max(10).optional(),
     price: z.coerce.number().min(0, 'Price cannot be negative'),
     stock: z.coerce.number().int().nonnegative('Stock cannot be negative'),
     isActive: z.preprocess((val) => val === 'true' || val === true, z.boolean()).optional(),
     categoryId: idSchema,
+    lowStockThreshold: z.coerce.number().int().nonnegative().nullable().optional(),
   }),
 });
 
@@ -47,11 +48,13 @@ export const updateProductSchema = z.object({
   body: z.object({
     name: z.string().min(1).optional(),
     description: z.string().optional(),
-    image: z.string().optional(),
+    images: z.array(z.string()).max(10).optional(),
+    imagesToKeep: z.array(z.string()).optional(),
     price: z.coerce.number().min(0).optional(),
     stock: z.coerce.number().int().nonnegative().optional(),
     isActive: z.preprocess((val) => val === 'true' || val === true, z.boolean()).optional(),
     categoryId: idSchema.optional(),
+    lowStockThreshold: z.coerce.number().int().nonnegative().nullable().optional(),
   }),
 });
 
@@ -172,4 +175,30 @@ export const updateBulkTierSchema = z.object({
 
 export const bulkTierIdParamSchema = z.object({
   params: z.object({ id: idSchema }),
+});
+
+// ─────────────────────────────────────────────
+// STOCK
+// ─────────────────────────────────────────────
+
+export const adjustStockSchema = z.object({
+  params: z.object({ id: idSchema }),
+  body: z.object({
+    quantityChange: z.number().int().refine((v) => v !== 0, 'quantityChange must be non-zero'),
+    reason: z.string().min(1, 'Reason is required'),
+  }),
+});
+
+export const stockHistoryQuerySchema = z.object({
+  params: z.object({ id: idSchema }),
+  query: z.object({
+    page: z.string().regex(/^\d+$/).optional().transform(Number),
+    limit: z.string().regex(/^\d+$/).optional().transform(Number),
+  }),
+});
+
+export const updateStockSettingsSchema = z.object({
+  body: z.object({
+    globalLowStockThreshold: z.number().int().nonnegative('Threshold cannot be negative'),
+  }),
 });

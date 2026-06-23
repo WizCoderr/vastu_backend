@@ -3,6 +3,7 @@ import { requireAdmin } from '../core/authMiddleware';
 import { AdminIntent } from '../admin/admin.intent';
 import liveClassAdminRoutes from '../live-class/live-class.admin.routes';
 import { remidiesAdminRouter } from '../remidies/remidies.routes';
+import whatsappRoutes from '../whatsapp/whatsapp.routes';
 
 const router = Router();
 
@@ -24,5 +25,10 @@ router.use('/live-classes', liveClassAdminRoutes);
 // REMIDIES E-COMMERCE ADMIN ROUTES
 // =============================================================================
 router.use('/remidies', requireAdmin, remidiesAdminRouter);
+
+// =============================================================================
+// WHATSAPP ADMIN ROUTES
+// =============================================================================
+router.use('/whatsapp', requireAdmin, whatsappRoutes);
 
 export default router;

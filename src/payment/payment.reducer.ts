@@ -2,6 +2,8 @@ import { prisma } from "../core/prisma";
 import { Result } from "../core/result";
 import { EnrollmentRepository } from "../enrollment/enrollment.repository";
 import { EmailService } from "../notification/email.service";
+import { WhatsAppService } from "../notification/whatsapp.service";
+import { WhatsAppMessages } from "../notification/whatsapp.messages";
 
 export class PaymentReducer {
   // -------------------------------------------------------------------------
@@ -355,6 +357,18 @@ export class PaymentReducer {
           bulkDiscount: bulk > 0 ? bulk : undefined,
           couponDiscount: coupon > 0 ? coupon : undefined,
         });
+
+        if (order.shippingPhone) {
+          await WhatsAppService.queueNotification({
+            type: "ORDER_CONFIRMATION",
+            recipientPhone: order.shippingPhone,
+            message: WhatsAppMessages.orderConfirmation({
+              orderId: order.id,
+              totalAmount: Number(payment.amount),
+            }),
+            referenceId: order.id,
+          });
+        }
       }
 
       return Result.ok({ success: true, paymentId: payment.id });

@@ -378,22 +378,87 @@ model Product {
   id          String  @id @default(uuid())
   name        String
   description String?
-  image       String?
+  images      Json    @default("[]")
   price       Decimal @db.Decimal(10, 2)
   stock       Int     @default(0)
   isActive    Boolean @default(true)
 
+  lowStockThreshold   Int?
+  lowStockAlertSentAt DateTime?
+
   categoryId String
   category   Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
 
-  orderItems OrderItem[]
-  cartItems  CartItem[]
+  orderItems     OrderItem[]
+  cartItems      CartItem[]
+  stockMovements StockMovement[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@index([categoryId])
   @@index([isActive])
+}
+
+model StockSettings {
+  id                      String   @id @default("default")
+  globalLowStockThreshold Int      @default(5)
+  updatedAt               DateTime @updatedAt
+}
+
+enum StockMovementType {
+  ORDER
+  RESTOCK
+  ADJUSTMENT
+  INITIAL
+}
+
+model StockMovement {
+  id             String            @id @default(uuid())
+  productId      String
+  type           StockMovementType
+  quantityChange Int
+  previousStock  Int
+  newStock       Int
+  reason         String?
+  referenceId    String?
+  createdBy      String?
+  createdAt      DateTime          @default(now())
+
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@index([productId])
+  @@index([createdAt])
+}
+
+enum WhatsAppNotificationType {
+  NEW_ORDER
+  LOW_STOCK
+  ORDER_CONFIRMATION
+  ORDER_STATUS
+}
+
+enum WhatsAppNotificationStatus {
+  PENDING
+  SENT
+  FAILED
+  FALLBACK_LINK
+}
+
+model WhatsAppNotification {
+  id             String                     @id @default(uuid())
+  type           WhatsAppNotificationType
+  recipientPhone String
+  message        String
+  status         WhatsAppNotificationStatus @default(PENDING)
+  waMeUrl        String?
+  referenceId    String?
+  error          String?
+  sentAt         DateTime?
+  createdAt      DateTime                   @default(now())
+
+  @@index([status])
+  @@index([createdAt])
 }
 
 model Cart {

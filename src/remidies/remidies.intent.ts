@@ -1,5 +1,9 @@
 import * as reducer from './remidies.reducer';
 import { OrderStatus, DiscountType, BulkTierType } from '../generated/prisma/client';
+import { config } from '../core/config';
+import { StockService } from '../stock/stock.service';
+import { WhatsAppService } from '../notification/whatsapp.service';
+import { WhatsAppMessages } from '../notification/whatsapp.messages';
 
 // --- CATEGORY INTENT ---
 
@@ -28,15 +32,23 @@ export const getAllCategories = async () => {
 export const createProduct = async (data: {
   name: string;
   description?: string;
-  image?: string;
+  images?: string[];
   price: number;
   stock: number;
   isActive?: boolean;
   categoryId: string;
+  lowStockThreshold?: number | null;
 }) => {
   const category = await reducer.getCategoryById(data.categoryId);
   if (!category) throw new Error('Category not found');
-  return reducer.createProduct(data);
+  const product = await reducer.createProduct(data);
+  if (!product) throw new Error('Failed to create product');
+
+  if (data.stock > 0) {
+    await StockService.checkAndQueueLowStockAlert(product.id, 0, data.stock, product.name);
+  }
+
+  return product;
 };
 
 export const updateProduct = async (
@@ -44,11 +56,13 @@ export const updateProduct = async (
   data: {
     name?: string;
     description?: string;
-    image?: string;
+    images?: string[];
+    imagesToKeep?: string[];
     price?: number;
     stock?: number;
     isActive?: boolean;
     categoryId?: string;
+    lowStockThreshold?: number | null;
   }
 ) => {
   const existing = await reducer.getProductById(id);
@@ -66,6 +80,10 @@ export const deleteProduct = async (id: string) => {
   const existing = await reducer.getProductById(id);
   if (!existing) throw new Error('Product not found');
   return reducer.deleteProduct(id);
+};
+
+export const getProductById = async (id: string) => {
+  return reducer.getProductById(id);
 };
 
 export const getAllProducts = async (params: { categoryId?: string; isActive?: boolean }) => {
@@ -264,24 +282,97 @@ export const checkoutCart = async (
 
   const totalAmount = Math.max(0, postBulkAmount - couponDiscount);
 
-  return reducer.createOrderWithTransaction(
+  const result = await reducer.createOrderWithTransaction(
     userId,
     orderItemsData,
     { subtotalAmount, bulkDiscount, couponDiscount, totalAmount, appliedCouponId, couponMaxUses },
     shippingDetails
   );
+
+  if (config.whatsapp.adminPhone) {
+    await WhatsAppService.queueNotification({
+      type: 'NEW_ORDER',
+      recipientPhone: config.whatsapp.adminPhone,
+      message: WhatsAppMessages.newOrder({
+        orderId: result.order.id,
+        totalAmount,
+        itemCount: cart.items.length,
+        shippingName: shippingDetails.shippingName,
+        shippingCity: shippingDetails.shippingCity,
+      }),
+      referenceId: result.order.id,
+    });
+  }
+
+  for (const change of result.stockChanges) {
+    await StockService.checkAndQueueLowStockAlert(
+      change.productId,
+      change.previousStock,
+      change.newStock,
+      change.productName
+    );
+  }
+
+  return result;
 };
 
 export const getUserOrders = async (userId: string) => {
   return reducer.getUserOrders(userId);
 };
 
-export const updateOrderStatus = async (orderId: string, status: OrderStatus) => {
+export const updateOrderStatus = async (orderId: string, status: OrderStatus, adminUserId?: string) => {
   const order = await reducer.getOrderById(orderId);
   if (!order) throw new Error('Order not found');
 
-  return reducer.updateOrderStatus(orderId, status);
+  const previousStatus = order.status;
+  const updated = await reducer.updateOrderStatus(orderId, status);
+
+  if (status === OrderStatus.CANCELLED && previousStatus !== OrderStatus.CANCELLED) {
+    await StockService.restoreOrderStock(
+      orderId,
+      order.items.map((item) => ({ productId: item.productId, quantity: item.quantity })),
+      adminUserId
+    );
+  }
+
+  const notifyStatuses: OrderStatus[] = [OrderStatus.SHIPPED, OrderStatus.DELIVERED, OrderStatus.CANCELLED];
+  if (notifyStatuses.includes(status) && status !== previousStatus && order.shippingPhone) {
+    await WhatsAppService.queueNotification({
+      type: 'ORDER_STATUS',
+      recipientPhone: order.shippingPhone,
+      message: WhatsAppMessages.orderStatus({ orderId, status }),
+      referenceId: orderId,
+    });
+  }
+
+  return updated;
 };
+
+// --- STOCK INTENT ---
+
+export const getLowStockProducts = async () => StockService.getLowStockProducts();
+
+export const adjustProductStock = async (
+  productId: string,
+  quantityChange: number,
+  reason: string,
+  adminUserId: string
+) => {
+  const product = await reducer.getProductById(productId);
+  if (!product) throw new Error('Product not found');
+  return StockService.adjustStock(productId, quantityChange, reason, adminUserId);
+};
+
+export const getProductStockHistory = async (productId: string, page: number, limit: number) => {
+  const product = await reducer.getProductById(productId);
+  if (!product) throw new Error('Product not found');
+  return StockService.getStockHistory(productId, page, limit);
+};
+
+export const getStockSettings = async () => StockService.getSettings();
+
+export const updateStockSettings = async (globalLowStockThreshold: number) =>
+  StockService.updateGlobalThreshold(globalLowStockThreshold);
 
 // --- COUPON INTENT ---
 

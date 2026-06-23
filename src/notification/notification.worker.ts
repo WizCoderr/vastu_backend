@@ -2,6 +2,7 @@ import { prisma } from "../core/prisma";
 import logger from "../utils/logger";
 import { LiveClassRepository } from "../live-class/live-class.repository";
 import { NotificationService } from "./notification.service";
+import { WhatsAppService } from "./whatsapp.service";
 
 // =============================================================================
 // NOTIFICATION CRON WORKER
@@ -168,6 +169,18 @@ async function autoUpdateClassStatus(): Promise<void> {
 }
 
 /**
+ * Process pending WhatsApp notifications
+ */
+async function processWhatsAppNotifications(): Promise<number> {
+    try {
+        return await WhatsAppService.processPendingNotifications();
+    } catch (error) {
+        logger.error("NotificationWorker: Error processing WhatsApp notifications", { error });
+        return 0;
+    }
+}
+
+/**
  * Main worker tick - runs all notification jobs
  */
 async function workerTick(): Promise<void> {
@@ -183,9 +196,10 @@ async function workerTick(): Promise<void> {
         logger.debug("NotificationWorker: Starting tick");
 
         // Run all jobs
-        const [liveClassCount, recordingCount] = await Promise.all([
+        const [liveClassCount, recordingCount, whatsAppCount] = await Promise.all([
             processLiveClassNotifications(),
             processRecordingNotifications(),
+            processWhatsAppNotifications(),
         ]);
 
         // Auto-update class statuses
@@ -193,10 +207,11 @@ async function workerTick(): Promise<void> {
 
         const duration = Date.now() - startTime;
 
-        if (liveClassCount > 0 || recordingCount > 0) {
+        if (liveClassCount > 0 || recordingCount > 0 || whatsAppCount > 0) {
             logger.info("NotificationWorker: Tick completed", {
                 liveClassNotifications: liveClassCount,
                 recordingNotifications: recordingCount,
+                whatsAppNotifications: whatsAppCount,
                 durationMs: duration,
             });
         } else {
