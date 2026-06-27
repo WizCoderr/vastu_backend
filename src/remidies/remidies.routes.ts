@@ -57,7 +57,9 @@ remidiesAdminRouter.put('/products/:id', upload.array('images', 10), ctrl.update
 remidiesAdminRouter.delete('/products/:id/images', ctrl.deleteProductImage as RequestHandler);
 remidiesAdminRouter.delete('/products/:id', ctrl.deleteProduct as RequestHandler);
 
-// Order management (Status)
+// Order management
+remidiesAdminRouter.get('/orders', ctrl.getAllOrders as RequestHandler);
+remidiesAdminRouter.get('/orders/:id', ctrl.getOrder as RequestHandler);
 remidiesAdminRouter.put('/orders/:id/status', ctrl.updateOrderStatus as RequestHandler);
 
 // Stock management

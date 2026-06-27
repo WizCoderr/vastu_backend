@@ -8,7 +8,7 @@ const notificationIdSchema = z.object({
 
 export const getWhatsAppStatus: RequestHandler = async (_req, res, next) => {
   try {
-    res.status(200).json({ success: true, data: WhatsAppService.getStatus() });
+    res.status(200).json({ success: true, data: await WhatsAppService.getDetailedStatus() });
   } catch (error) {
     next(error);
   }

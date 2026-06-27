@@ -392,6 +392,7 @@ model Product {
   orderItems     OrderItem[]
   cartItems      CartItem[]
   stockMovements StockMovement[]
+  couponProducts CouponProduct[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -550,6 +551,11 @@ enum BulkTierType {
   VALUE
 }
 
+enum CouponProductScope {
+  ALL
+  SPECIFIC
+}
+
 model Coupon {
   id            String       @id @default(uuid())
   code          String       @unique
@@ -559,18 +565,30 @@ model Coupon {
   usedCount     Int          @default(0)
   expiresAt     DateTime
   isActive      Boolean      @default(true)
+  productScope  CouponProductScope @default(ALL)
 
   assignedUserId String
   assignedUser   User         @relation("UserCoupons", fields: [assignedUserId], references: [id], onDelete: Cascade)
 
-  orders Order[]      @relation("OrderCoupon")
-  usages CouponUsage[]
+  orders   Order[]         @relation("OrderCoupon")
+  usages   CouponUsage[]
+  products CouponProduct[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@index([code])
   @@index([assignedUserId])
+}
+
+model CouponProduct {
+  couponId  String
+  productId String
+  coupon    Coupon  @relation(fields: [couponId], references: [id], onDelete: Cascade)
+  product   Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@id([couponId, productId])
+  @@index([productId])
 }
 
 model CouponUsage {

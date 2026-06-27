@@ -1,5 +1,5 @@
 import * as reducer from './remidies.reducer';
-import { OrderStatus, DiscountType, BulkTierType } from '../generated/prisma/client';
+import { OrderStatus, DiscountType, BulkTierType, CouponProductScope } from '../generated/prisma/client';
 import { config } from '../core/config';
 import { StockService } from '../stock/stock.service';
 import { WhatsAppService } from '../notification/whatsapp.service';
@@ -88,7 +88,10 @@ export const getProductById = async (id: string) => {
 
 export const getAllProducts = async (params: { categoryId?: string; isActive?: boolean }) => {
   const products = await reducer.getAllProducts(params);
-  return products.map(p => ({ ...p, price: Number(p.price) }));
+  return products.map(p => {
+    const price = Number(p.price);
+    return { ...p, price, rate: price };
+  });
 };
 
 export const getProducts = async (params: { page: number; limit: number; categoryId?: string; isActive?: boolean }) => {
@@ -98,7 +101,10 @@ export const getProducts = async (params: { page: number; limit: number; categor
   const result = await reducer.getProducts({ skip, take, categoryId: params.categoryId, isActive: params.isActive });
 
   return {
-    data: result.products.map(p => ({ ...p, price: Number(p.price) })),
+    data: result.products.map(p => {
+      const price = Number(p.price);
+      return { ...p, price, rate: price };
+    }),
     meta: {
       total: result.total,
       page: params.page,
@@ -110,12 +116,40 @@ export const getProducts = async (params: { page: number; limit: number; categor
 
 // --- CART INTENT ---
 
+type RawCart = NonNullable<Awaited<ReturnType<typeof reducer.getCartByUserId>>>;
+
+export const formatCartProduct = (product: RawCart['items'][number]['product']) => {
+  const price = Number(product.price);
+  return {
+    ...product,
+    price,
+    rate: price,
+  };
+};
+
+export const formatCart = (cart: RawCart | null) => {
+  if (!cart) return null;
+
+  let subtotal = 0;
+  let itemCount = 0;
+
+  const items = cart.items.map((item) => {
+    const product = formatCartProduct(item.product);
+    const lineTotal = product.price * item.quantity;
+    subtotal += lineTotal;
+    itemCount += item.quantity;
+    return { ...item, lineTotal, product };
+  });
+
+  return { ...cart, items, subtotal, itemCount };
+};
+
 export const getCart = async (userId: string) => {
   let cart = await reducer.getCartByUserId(userId);
   if (!cart) {
     cart = await reducer.createCart(userId);
   }
-  return cart;
+  return formatCart(cart);
 };
 
 export const addToCart = async (userId: string, productId: string, quantity: number) => {
@@ -142,7 +176,7 @@ export const addToCart = async (userId: string, productId: string, quantity: num
     await reducer.addCartItem(cart.id, productId, quantity);
   }
 
-  return reducer.getCartByUserId(userId);
+  return formatCart(await reducer.getCartByUserId(userId));
 };
 
 export const updateCartItem = async (userId: string, productId: string, quantity: number) => {
@@ -161,7 +195,7 @@ export const updateCartItem = async (userId: string, productId: string, quantity
   }
 
   await reducer.updateCartItemQuantity(existingItem.id, quantity);
-  return reducer.getCartByUserId(userId);
+  return formatCart(await reducer.getCartByUserId(userId));
 };
 
 export const removeFromCart = async (userId: string, productId: string) => {
@@ -169,7 +203,7 @@ export const removeFromCart = async (userId: string, productId: string) => {
   if (!cart) throw new Error('Cart not found');
 
   await reducer.removeCartItem(cart.id, productId);
-  return reducer.getCartByUserId(userId);
+  return formatCart(await reducer.getCartByUserId(userId));
 };
 
 // --- DISCOUNT HELPERS ---
@@ -200,18 +234,60 @@ const applyBulkDiscount = async (
   return { bulkDiscount: bestDiscountAmount, appliedTierId: bestTierId };
 };
 
-const validateCoupon = async (
-  code: string,
-  userId: string,
-  priceBase: number
-): Promise<{ couponId: string; couponMaxUses: number; discountAmount: number }> => {
-  const coupon = await reducer.getCouponByCode(code);
+type CouponCartLine = { productId: string; lineTotal: number };
 
-  if (!coupon) throw new Error('Coupon not found or invalid');
-  if (!coupon.isActive) throw new Error('This coupon has been deactivated');
-  if (coupon.assignedUserId !== userId) throw new Error('This coupon is not valid for your account');
-  if (new Date() > coupon.expiresAt) throw new Error('This coupon has expired');
-  if (coupon.usedCount >= coupon.maxUses) throw new Error('This coupon has reached its maximum usage limit');
+type CouponCartContext = {
+  subtotalAmount: number;
+  postBulkAmount: number;
+  cartLines: CouponCartLine[];
+};
+
+type CouponWithProducts = NonNullable<Awaited<ReturnType<typeof reducer.getCouponByCode>>>;
+
+type CouponProductLink = CouponWithProducts['products'][number];
+
+const formatCouponResponse = <T extends { discountValue: unknown; products: CouponProductLink[] }>(coupon: T) => ({
+  ...coupon,
+  discountValue: Number(coupon.discountValue),
+  products: coupon.products.map((entry) => entry.product),
+});
+
+const validateCouponProductIds = async (productIds: string[]) => {
+  const uniqueIds = [...new Set(productIds)];
+  const products = await reducer.getActiveProductsByIds(uniqueIds);
+  if (products.length !== uniqueIds.length) {
+    throw new Error('One or more selected products are invalid or inactive');
+  }
+  return uniqueIds;
+};
+
+const computeCouponDiscount = (
+  coupon: NonNullable<CouponWithProducts>,
+  context: CouponCartContext
+): { discountAmount: number; eligibleSubtotal: number } => {
+  let priceBase: number;
+  let eligibleSubtotal = 0;
+
+  if (coupon.productScope === CouponProductScope.SPECIFIC) {
+    const eligibleIds = new Set(coupon.products.map((entry) => entry.product.id));
+    for (const line of context.cartLines) {
+      if (eligibleIds.has(line.productId)) {
+        eligibleSubtotal += line.lineTotal;
+      }
+    }
+
+    if (eligibleSubtotal === 0) {
+      throw new Error('This coupon is not valid for items in your cart');
+    }
+
+    priceBase =
+      context.subtotalAmount === 0
+        ? 0
+        : context.postBulkAmount * (eligibleSubtotal / context.subtotalAmount);
+  } else {
+    eligibleSubtotal = context.subtotalAmount;
+    priceBase = context.postBulkAmount;
+  }
 
   let discountAmount: number;
   if (coupon.discountType === DiscountType.PERCENTAGE) {
@@ -219,6 +295,24 @@ const validateCoupon = async (
   } else {
     discountAmount = Math.min(Number(coupon.discountValue), priceBase);
   }
+
+  return { discountAmount, eligibleSubtotal };
+};
+
+const validateCoupon = async (
+  code: string,
+  userId: string,
+  context: CouponCartContext
+): Promise<{ couponId: string; couponMaxUses: number; discountAmount: number }> => {
+  const coupon = await reducer.getCouponByCode(code.toUpperCase());
+
+  if (!coupon) throw new Error('Coupon not found or invalid');
+  if (!coupon.isActive) throw new Error('This coupon has been deactivated');
+  if (coupon.assignedUserId !== userId) throw new Error('This coupon is not valid for your account');
+  if (new Date() > coupon.expiresAt) throw new Error('This coupon has expired');
+  if (coupon.usedCount >= coupon.maxUses) throw new Error('This coupon has reached its maximum usage limit');
+
+  const { discountAmount } = computeCouponDiscount(coupon, context);
 
   return { couponId: coupon.id, couponMaxUses: coupon.maxUses, discountAmount };
 };
@@ -245,6 +339,7 @@ export const checkoutCart = async (
   const orderItemsData = [];
   let subtotalAmount = 0;
   let totalQuantity = 0;
+  const cartLines: CouponCartLine[] = [];
 
   for (const item of cart.items) {
     const product = item.product;
@@ -256,13 +351,16 @@ export const checkoutCart = async (
       throw new Error(`Insufficient stock for product ${product.name}`);
     }
 
+    const lineTotal = Number(product.price) * item.quantity;
+
     orderItemsData.push({
       productId: product.id,
       quantity: item.quantity,
       price: Number(product.price),
     });
 
-    subtotalAmount += Number(product.price) * item.quantity;
+    cartLines.push({ productId: product.id, lineTotal });
+    subtotalAmount += lineTotal;
     totalQuantity += item.quantity;
   }
 
@@ -274,7 +372,11 @@ export const checkoutCart = async (
   let couponMaxUses: number | null = null;
 
   if (couponCode) {
-    const couponResult = await validateCoupon(couponCode, userId, postBulkAmount);
+    const couponResult = await validateCoupon(couponCode, userId, {
+      subtotalAmount,
+      postBulkAmount,
+      cartLines,
+    });
     couponDiscount = couponResult.discountAmount;
     appliedCouponId = couponResult.couponId;
     couponMaxUses = couponResult.couponMaxUses;
@@ -317,7 +419,71 @@ export const checkoutCart = async (
 };
 
 export const getUserOrders = async (userId: string) => {
-  return reducer.getUserOrders(userId);
+  const orders = await reducer.getUserOrders(userId);
+  return orders.map((order) => ({
+    ...order,
+    subtotalAmount: Number(order.subtotalAmount),
+    bulkDiscount: Number(order.bulkDiscount),
+    couponDiscount: Number(order.couponDiscount),
+    totalAmount: Number(order.totalAmount),
+    items: order.items.map((item) => ({
+      ...item,
+      price: Number(item.price),
+      product: {
+        ...item.product,
+        price: Number(item.product.price),
+        rate: Number(item.product.price),
+      },
+    })),
+    payment: order.payment ? { ...order.payment, amount: Number(order.payment.amount) } : null,
+  }));
+};
+
+export const getAllOrders = async (params: { page: number; limit: number; status?: OrderStatus }) => {
+  const skip = (params.page - 1) * params.limit;
+  const result = await reducer.getAllOrders({ skip, take: params.limit, status: params.status });
+
+  return {
+    data: result.orders.map((order) => ({
+      ...order,
+      subtotalAmount: Number(order.subtotalAmount),
+      bulkDiscount: Number(order.bulkDiscount),
+      couponDiscount: Number(order.couponDiscount),
+      totalAmount: Number(order.totalAmount),
+      items: order.items.map((item) => ({
+        ...item,
+        price: Number(item.price),
+        product: { ...item.product, price: Number(item.product.price) },
+      })),
+      payment: order.payment
+        ? { ...order.payment, amount: Number(order.payment.amount) }
+        : null,
+    })),
+    meta: {
+      total: result.total,
+      page: params.page,
+      limit: params.limit,
+      totalPages: Math.ceil(result.total / params.limit),
+    },
+  };
+};
+
+export const getOrder = async (orderId: string) => {
+  const order = await reducer.getOrderById(orderId);
+  if (!order) throw new Error('Order not found');
+  return {
+    ...order,
+    subtotalAmount: Number(order.subtotalAmount),
+    bulkDiscount: Number(order.bulkDiscount),
+    couponDiscount: Number(order.couponDiscount),
+    totalAmount: Number(order.totalAmount),
+    items: order.items.map((item) => ({
+      ...item,
+      price: Number(item.price),
+      product: { ...item.product, price: Number(item.product.price) },
+    })),
+    payment: order.payment ? { ...order.payment, amount: Number(order.payment.amount) } : null,
+  };
 };
 
 export const updateOrderStatus = async (orderId: string, status: OrderStatus, adminUserId?: string) => {
@@ -383,25 +549,42 @@ export const createCoupon = async (data: {
   maxUses: number;
   expiresAt: string;
   assignedUserId: string;
+  productScope?: CouponProductScope;
+  productIds?: string[];
 }) => {
   const existing = await reducer.getCouponByCode(data.code.toUpperCase());
   if (existing) throw new Error('A coupon with this code already exists');
 
-  return reducer.createCoupon({
-    ...data,
+  const productScope = data.productScope ?? CouponProductScope.ALL;
+  let productIds: string[] | undefined;
+
+  if (productScope === CouponProductScope.SPECIFIC) {
+    productIds = await validateCouponProductIds(data.productIds!);
+  }
+
+  const coupon = await reducer.createCoupon({
     code: data.code.toUpperCase(),
+    discountType: data.discountType,
+    discountValue: data.discountValue,
+    maxUses: data.maxUses,
     expiresAt: new Date(data.expiresAt),
+    assignedUserId: data.assignedUserId,
+    productScope,
+    productIds,
   });
+
+  return coupon ? formatCouponResponse(coupon) : null;
 };
 
 export const getCoupons = async (filters?: { assignedUserId?: string; isActive?: boolean }) => {
-  return reducer.getAllCoupons(filters);
+  const coupons = await reducer.getAllCoupons(filters);
+  return coupons.map(formatCouponResponse);
 };
 
 export const getCoupon = async (id: string) => {
   const coupon = await reducer.getCouponById(id);
   if (!coupon) throw new Error('Coupon not found');
-  return coupon;
+  return formatCouponResponse(coupon);
 };
 
 export const updateCoupon = async (id: string, data: {
@@ -409,24 +592,55 @@ export const updateCoupon = async (id: string, data: {
   maxUses?: number;
   expiresAt?: string;
   isActive?: boolean;
+  productScope?: CouponProductScope;
+  productIds?: string[];
 }) => {
   const existing = await reducer.getCouponById(id);
   if (!existing) throw new Error('Coupon not found');
 
-  return reducer.updateCoupon(id, {
-    ...data,
+  let productIds: string[] | undefined;
+
+  if (data.productScope === CouponProductScope.ALL) {
+    productIds = [];
+  } else if (data.productScope === CouponProductScope.SPECIFIC) {
+    const resolvedProductIds =
+      data.productIds ?? existing.products.map((entry) => entry.product.id);
+
+    if (resolvedProductIds.length === 0) {
+      throw new Error('At least one product is required for product-specific coupons');
+    }
+
+    productIds = await validateCouponProductIds(resolvedProductIds);
+  } else if (data.productIds !== undefined) {
+    if (existing.productScope !== CouponProductScope.SPECIFIC) {
+      throw new Error('Cannot set productIds on an all-products coupon');
+    }
+
+    productIds = await validateCouponProductIds(data.productIds);
+  }
+
+  const coupon = await reducer.updateCoupon(id, {
+    discountValue: data.discountValue,
+    maxUses: data.maxUses,
     expiresAt: data.expiresAt ? new Date(data.expiresAt) : undefined,
+    isActive: data.isActive,
+    productScope: data.productScope,
+    productIds,
   });
+
+  return coupon ? formatCouponResponse(coupon) : null;
 };
 
 export const deactivateCoupon = async (id: string) => {
   const existing = await reducer.getCouponById(id);
   if (!existing) throw new Error('Coupon not found');
-  return reducer.updateCoupon(id, { isActive: false });
+  const coupon = await reducer.updateCoupon(id, { isActive: false });
+  return coupon ? formatCouponResponse(coupon) : null;
 };
 
 export const getMyCoupons = async (userId: string) => {
-  return reducer.getUserCoupons(userId);
+  const coupons = await reducer.getUserCoupons(userId);
+  return coupons.map(formatCouponResponse);
 };
 
 export const validateCouponForUser = async (couponCode: string, userId: string) => {
@@ -438,13 +652,56 @@ export const validateCouponForUser = async (couponCode: string, userId: string) 
   if (new Date() > coupon.expiresAt) throw new Error('This coupon has expired');
   if (coupon.usedCount >= coupon.maxUses) throw new Error('This coupon has reached its maximum usage limit');
 
-  return {
+  const applicableProducts =
+    coupon.productScope === CouponProductScope.SPECIFIC
+      ? coupon.products.map((entry) => entry.product)
+      : [];
+
+  const response: {
+    code: string;
+    discountType: DiscountType;
+    discountValue: number;
+    usesRemaining: number;
+    expiresAt: Date;
+    productScope: CouponProductScope;
+    applicableProducts: { id: string; name: string }[];
+    eligibleSubtotal?: number;
+    discountAmount?: number;
+  } = {
     code: coupon.code,
     discountType: coupon.discountType,
     discountValue: Number(coupon.discountValue),
     usesRemaining: coupon.maxUses - coupon.usedCount,
     expiresAt: coupon.expiresAt,
+    productScope: coupon.productScope,
+    applicableProducts,
   };
+
+  const cart = await reducer.getCartByUserId(userId);
+  if (cart && cart.items.length > 0) {
+    let subtotalAmount = 0;
+    const cartLines: CouponCartLine[] = [];
+
+    for (const item of cart.items) {
+      const lineTotal = Number(item.product.price) * item.quantity;
+      cartLines.push({ productId: item.product.id, lineTotal });
+      subtotalAmount += lineTotal;
+    }
+
+    const totalQuantity = cart.items.reduce((sum, item) => sum + item.quantity, 0);
+    const { bulkDiscount } = await applyBulkDiscount(subtotalAmount, totalQuantity);
+    const postBulkAmount = subtotalAmount - bulkDiscount;
+    const { discountAmount, eligibleSubtotal } = computeCouponDiscount(coupon, {
+      subtotalAmount,
+      postBulkAmount,
+      cartLines,
+    });
+
+    response.eligibleSubtotal = eligibleSubtotal;
+    response.discountAmount = discountAmount;
+  }
+
+  return response;
 };
 
 // --- BULK DISCOUNT TIER INTENT ---

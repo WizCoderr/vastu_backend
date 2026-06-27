@@ -116,29 +116,84 @@ export const orderIdParamSchema = z.object({
   }),
 });
 
+export const getOrdersQuerySchema = z.object({
+  query: z.object({
+    page: z.string().regex(/^\d+$/).optional().transform(Number),
+    limit: z.string().regex(/^\d+$/).optional().transform(Number),
+    status: z.nativeEnum(OrderStatus).optional(),
+  }),
+});
+
 // ─────────────────────────────────────────────
 // COUPON
 // ─────────────────────────────────────────────
 
+const couponProductScopeSchema = z.enum(['ALL', 'SPECIFIC']);
+
+const couponProductScopeRefinement = (
+  data: { productScope?: 'ALL' | 'SPECIFIC'; productIds?: string[] },
+  ctx: z.RefinementCtx
+) => {
+  const scope = data.productScope ?? 'ALL';
+  if (scope === 'SPECIFIC') {
+    if (!data.productIds || data.productIds.length === 0) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'At least one product is required when product scope is SPECIFIC',
+        path: ['productIds'],
+      });
+    }
+  } else if (data.productIds && data.productIds.length > 0) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: 'productIds must be empty when product scope is ALL',
+      path: ['productIds'],
+    });
+  }
+};
+
 export const createCouponSchema = z.object({
-  body: z.object({
-    code: z.string().min(3).max(32),
-    discountType: z.enum(['PERCENTAGE', 'FIXED']),
-    discountValue: z.number().positive('Discount value must be positive'),
-    maxUses: z.number().int().positive('Max uses must be at least 1'),
-    expiresAt: z.string().datetime('Invalid expiry date'),
-    assignedUserId: idSchema,
-  }),
+  body: z
+    .object({
+      code: z.string().min(3).max(32),
+      discountType: z.enum(['PERCENTAGE', 'FIXED']),
+      discountValue: z.number().positive('Discount value must be positive'),
+      maxUses: z.number().int().positive('Max uses must be at least 1'),
+      expiresAt: z.string().datetime('Invalid expiry date'),
+      assignedUserId: idSchema,
+      productScope: couponProductScopeSchema.default('ALL'),
+      productIds: z.array(idSchema).min(1).optional(),
+    })
+    .superRefine(couponProductScopeRefinement),
 });
 
 export const updateCouponSchema = z.object({
   params: z.object({ id: idSchema }),
-  body: z.object({
-    discountValue: z.number().positive().optional(),
-    maxUses: z.number().int().positive().optional(),
-    expiresAt: z.string().datetime().optional(),
-    isActive: z.boolean().optional(),
-  }),
+  body: z
+    .object({
+      discountValue: z.number().positive().optional(),
+      maxUses: z.number().int().positive().optional(),
+      expiresAt: z.string().datetime().optional(),
+      isActive: z.boolean().optional(),
+      productScope: couponProductScopeSchema.optional(),
+      productIds: z.array(idSchema).min(1).optional(),
+    })
+    .superRefine((data, ctx) => {
+      if (data.productScope === 'ALL' && data.productIds && data.productIds.length > 0) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: 'productIds must be empty when product scope is ALL',
+          path: ['productIds'],
+        });
+      }
+      if (data.productScope === 'SPECIFIC' && data.productIds !== undefined && data.productIds.length === 0) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: 'At least one product is required when product scope is SPECIFIC',
+          path: ['productIds'],
+        });
+      }
+    }),
 });
 
 export const couponIdParamSchema = z.object({

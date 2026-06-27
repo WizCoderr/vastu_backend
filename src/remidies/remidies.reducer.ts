@@ -1,5 +1,5 @@
 import { prisma } from '../core/prisma';
-import { OrderStatus, PaymentStatus, PaymentType, PaymentProvider, DiscountType, BulkTierType, StockMovementType } from '../generated/prisma/client';
+import { OrderStatus, PaymentStatus, PaymentType, PaymentProvider, DiscountType, BulkTierType, StockMovementType, CouponProductScope } from '../generated/prisma/client';
 import { StockService } from '../stock/stock.service';
 
 // --- CATEGORY ---
@@ -302,6 +302,28 @@ export const getUserOrders = async (userId: string) => {
   });
 };
 
+export const getAllOrders = async (params: { skip?: number; take?: number; status?: OrderStatus }) => {
+  const where: { status?: OrderStatus } = {};
+  if (params.status) where.status = params.status;
+
+  const [orders, total] = await Promise.all([
+    prisma.order.findMany({
+      where,
+      skip: params.skip,
+      take: params.take,
+      include: {
+        items: { include: { product: true } },
+        payment: true,
+        user: { select: { id: true, name: true, email: true, phoneNumber: true } },
+      },
+      orderBy: { createdAt: 'desc' },
+    }),
+    prisma.order.count({ where }),
+  ]);
+
+  return { orders, total };
+};
+
 export const getOrderById = async (orderId: string) => {
   return prisma.order.findUnique({
     where: { id: orderId },
@@ -322,6 +344,19 @@ export const updateOrderStatus = async (orderId: string, status: OrderStatus) =>
 
 // --- COUPON ---
 
+const couponProductsInclude = {
+  products: {
+    include: { product: { select: { id: true, name: true } } },
+  },
+} as const;
+
+export const getActiveProductsByIds = async (productIds: string[]) => {
+  return prisma.product.findMany({
+    where: { id: { in: productIds }, isActive: true },
+    select: { id: true },
+  });
+};
+
 export const createCoupon = async (data: {
   code: string;
   discountType: DiscountType;
@@ -329,12 +364,32 @@ export const createCoupon = async (data: {
   maxUses: number;
   expiresAt: Date;
   assignedUserId: string;
+  productScope: CouponProductScope;
+  productIds?: string[];
 }) => {
-  return prisma.coupon.create({ data });
+  const { productIds, ...couponData } = data;
+
+  return prisma.$transaction(async (tx) => {
+    const coupon = await tx.coupon.create({ data: couponData });
+
+    if (data.productScope === CouponProductScope.SPECIFIC && productIds?.length) {
+      await tx.couponProduct.createMany({
+        data: productIds.map((productId) => ({ couponId: coupon.id, productId })),
+      });
+    }
+
+    return tx.coupon.findUnique({
+      where: { id: coupon.id },
+      include: couponProductsInclude,
+    });
+  });
 };
 
 export const getCouponByCode = async (code: string) => {
-  return prisma.coupon.findUnique({ where: { code } });
+  return prisma.coupon.findUnique({
+    where: { code },
+    include: couponProductsInclude,
+  });
 };
 
 export const getCouponById = async (id: string) => {
@@ -343,6 +398,7 @@ export const getCouponById = async (id: string) => {
     include: {
       assignedUser: { select: { id: true, name: true, email: true } },
       usages: { include: { order: { select: { id: true, totalAmount: true, createdAt: true } } } },
+      ...couponProductsInclude,
     },
   });
 };
@@ -354,7 +410,10 @@ export const getAllCoupons = async (filters?: { assignedUserId?: string; isActiv
 
   return prisma.coupon.findMany({
     where,
-    include: { assignedUser: { select: { id: true, name: true, email: true } } },
+    include: {
+      assignedUser: { select: { id: true, name: true, email: true } },
+      ...couponProductsInclude,
+    },
     orderBy: { createdAt: 'desc' },
   });
 };
@@ -364,13 +423,39 @@ export const updateCoupon = async (id: string, data: {
   maxUses?: number;
   expiresAt?: Date;
   isActive?: boolean;
+  productScope?: CouponProductScope;
+  productIds?: string[];
 }) => {
-  return prisma.coupon.update({ where: { id }, data });
+  const { productIds, ...couponData } = data;
+
+  return prisma.$transaction(async (tx) => {
+    await tx.coupon.update({ where: { id }, data: couponData });
+
+    if (data.productScope === CouponProductScope.ALL) {
+      await tx.couponProduct.deleteMany({ where: { couponId: id } });
+    } else if (productIds !== undefined) {
+      await tx.couponProduct.deleteMany({ where: { couponId: id } });
+      if (productIds.length > 0) {
+        await tx.couponProduct.createMany({
+          data: productIds.map((productId) => ({ couponId: id, productId })),
+        });
+      }
+    }
+
+    return tx.coupon.findUnique({
+      where: { id },
+      include: {
+        assignedUser: { select: { id: true, name: true, email: true } },
+        ...couponProductsInclude,
+      },
+    });
+  });
 };
 
 export const getUserCoupons = async (userId: string) => {
   return prisma.coupon.findMany({
     where: { assignedUserId: userId, isActive: true },
+    include: couponProductsInclude,
     orderBy: { createdAt: 'desc' },
   });
 };

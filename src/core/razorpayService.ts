@@ -1,17 +1,25 @@
 import Razorpay from "razorpay";
 import crypto from "crypto";
 import logger from "../utils/logger";
+import { config } from "./config";
 
 // Lazy init instance
 let razorpayInstance: Razorpay | null = null;
 
+const razorpayEnvHint = () =>
+  config.razorpay.useTest
+    ? "RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET (or RAZORPAY_TEST_KEY_ID and RAZORPAY_TEST_KEY_SECRET)"
+    : "RAZORPAY_KEY_ID_PROD and RAZORPAY_KEY_SECRET_PROD";
+
+export const getRazorpayKeyId = () => config.razorpay.keyId;
+
 const getRazorpay = () => {
   if (!razorpayInstance) {
-    const keyId = process.env.RAZORPAY_KEY_ID_PROD;
-    const keySecret = process.env.RAZORPAY_KEY_SECRET_PROD;
+    const keyId = config.razorpay.keyId;
+    const keySecret = config.razorpay.keySecret;
     if (!keyId || !keySecret) {
       throw new Error(
-        "RAZORPAY_KEY_ID_PROD and RAZORPAY_KEY_SECRET_PROD environment variables are required",
+        `Razorpay ${config.razorpay.useTest ? "test" : "production"} credentials are required: ${razorpayEnvHint()}`,
       );
     }
     razorpayInstance = new Razorpay({ key_id: keyId, key_secret: keySecret });
@@ -47,7 +55,7 @@ export const verifyRazorpaySignature = (
   paymentId: string,
   signature: string,
 ): boolean => {
-  const secret = process.env.RAZORPAY_KEY_SECRET_PROD;
+  const secret = config.razorpay.keySecret;
   if (!secret) return false;
 
   const generatedSignature = crypto

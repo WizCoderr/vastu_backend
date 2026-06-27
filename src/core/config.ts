@@ -58,4 +58,18 @@ export const config = {
     stock: {
         defaultLowStockThreshold: parseInteger(process.env.DEFAULT_LOW_STOCK_THRESHOLD, 5),
     },
+
+    razorpay: {
+        useTest: process.env.RAZORPAY_USE_TEST === 'true',
+        get keyId() {
+            return this.useTest
+                ? (process.env.RAZORPAY_KEY_ID ?? process.env.RAZORPAY_TEST_KEY_ID)
+                : process.env.RAZORPAY_KEY_ID_PROD;
+        },
+        get keySecret() {
+            return this.useTest
+                ? (process.env.RAZORPAY_KEY_SECRET ?? process.env.RAZORPAY_TEST_KEY_SECRET)
+                : process.env.RAZORPAY_KEY_SECRET_PROD;
+        },
+    },
 };

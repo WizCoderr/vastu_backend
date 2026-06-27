@@ -45,8 +45,4 @@ certs
 brain
 .claude
 .wwebjs_auth
-
-# markdown files: ignore all but README.md
-*.md
-!README.md
-!PROJECT_DOCUMENTATION.md
+graphify-out/

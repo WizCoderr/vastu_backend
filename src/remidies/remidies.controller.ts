@@ -14,6 +14,7 @@ import {
   createOrderSchema,
   updateOrderStatusSchema,
   orderIdParamSchema,
+  getOrdersQuerySchema,
   createCouponSchema,
   updateCouponSchema,
   couponIdParamSchema,
@@ -77,6 +78,22 @@ const signS3Url = async (s3Url: string | null | undefined): Promise<string | nul
 const signImages = async (images: string[] | null | undefined): Promise<string[]> => {
     if (!images || !Array.isArray(images)) return [];
     return Promise.all(images.map(img => signS3Url(img) as Promise<string>));
+};
+
+type FormattedCart = NonNullable<Awaited<ReturnType<typeof intent.getCart>>>;
+
+const signCartProductImages = async (cart: FormattedCart | null): Promise<FormattedCart | null> => {
+    if (!cart) return cart;
+    const items = await Promise.all(
+        cart.items.map(async (item) => ({
+            ...item,
+            product: {
+                ...item.product,
+                images: await signImages(item.product.images as string[]),
+            },
+        }))
+    );
+    return { ...cart, items };
 };
 
 const deleteS3Object = async (s3Url: string): Promise<void> => {
@@ -303,7 +320,7 @@ export const getProducts: RequestHandler = async (req, res, next) => {
 export const getCart: RequestHandler = async (req: AuthRequest, res, next) => {
   try {
     const userId = req.user!.userId;
-    const cart = await intent.getCart(userId);
+    const cart = await signCartProductImages(await intent.getCart(userId));
     res.status(200).json({ success: true, data: cart });
   } catch (error) { next(error); }
 };
@@ -312,8 +329,8 @@ export const addToCart: RequestHandler = async (req: AuthRequest, res, next) => 
   try {
     const userId = req.user!.userId;
     const { productId, quantity } = addToCartSchema.parse(req).body;
-    const cartItem = await intent.addToCart(userId, productId, quantity);
-    res.status(200).json({ success: true, data: cartItem });
+    const cart = await signCartProductImages(await intent.addToCart(userId, productId, quantity));
+    res.status(200).json({ success: true, data: cart });
   } catch (error) { next(error); }
 };
 
@@ -322,8 +339,8 @@ export const updateCartItem: RequestHandler = async (req: AuthRequest, res, next
     const userId = req.user!.userId;
     const { productId } = updateCartItemSchema.parse(req).params;
     const { quantity } = updateCartItemSchema.parse(req).body;
-    const cartItem = await intent.updateCartItem(userId, productId, quantity);
-    res.status(200).json({ success: true, data: cartItem });
+    const cart = await signCartProductImages(await intent.updateCartItem(userId, productId, quantity));
+    res.status(200).json({ success: true, data: cart });
   } catch (error) { next(error); }
 };
 
@@ -331,8 +348,8 @@ export const removeCartItem: RequestHandler = async (req: AuthRequest, res, next
   try {
     const userId = req.user!.userId;
     const { productId } = updateCartItemSchema.parse(req).params;
-    await intent.removeFromCart(userId, productId);
-    res.status(200).json({ success: true, message: 'Item removed from cart' });
+    const cart = await signCartProductImages(await intent.removeFromCart(userId, productId));
+    res.status(200).json({ success: true, data: cart });
   } catch (error) { next(error); }
 };
 
@@ -354,6 +371,26 @@ export const getUserOrders: RequestHandler = async (req: AuthRequest, res, next)
     const userId = req.user!.userId;
     const orders = await intent.getUserOrders(userId);
     res.status(200).json({ success: true, data: orders });
+  } catch (error) { next(error); }
+};
+
+export const getAllOrders: RequestHandler = async (req, res, next) => {
+  try {
+    const query = getOrdersQuerySchema.parse(req).query;
+    const result = await intent.getAllOrders({
+      page: query.page || 1,
+      limit: query.limit || 20,
+      status: query.status,
+    });
+    res.status(200).json({ success: true, ...result });
+  } catch (error) { next(error); }
+};
+
+export const getOrder: RequestHandler = async (req, res, next) => {
+  try {
+    const { id } = orderIdParamSchema.parse(req).params;
+    const order = await intent.getOrder(id);
+    res.status(200).json({ success: true, data: order });
   } catch (error) { next(error); }
 };
 

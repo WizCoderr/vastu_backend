@@ -104,7 +104,8 @@ export class PaymentReducer {
         },
       });
 
-      const keyId = process.env.RAZORPAY_KEY_ID_PROD;
+      const { getRazorpayKeyId } = await import("../core/razorpayService");
+      const keyId = getRazorpayKeyId();
       if (!keyId) return Result.fail("Payment gateway is not configured");
 
       return Result.ok({
@@ -223,7 +224,8 @@ export class PaymentReducer {
         data: { razorpayOrderId: order.id },
       });
 
-      const keyId = process.env.RAZORPAY_KEY_ID_PROD;
+      const { getRazorpayKeyId } = await import("../core/razorpayService");
+      const keyId = getRazorpayKeyId();
       if (!keyId) return Result.fail("Payment gateway is not configured");
 
       return Result.ok({
@@ -278,7 +280,8 @@ export class PaymentReducer {
         },
       });
 
-      const keyId = process.env.RAZORPAY_KEY_ID_PROD;
+      const { getRazorpayKeyId } = await import("../core/razorpayService");
+      const keyId = getRazorpayKeyId();
       if (!keyId) return Result.fail("Payment gateway is not configured");
 
       return Result.ok({

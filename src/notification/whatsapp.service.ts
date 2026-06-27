@@ -10,8 +10,15 @@ let connectionState: WhatsAppConnectionState = 'disconnected';
 let currentQr: string | null = null;
 let connectedPhone: string | null = null;
 let initializing = false;
+let lastInitError: string | null = null;
 
-export const normalizePhone = (phone: string): string => phone.replace(/\D/g, '');
+export const normalizePhone = (phone: string): string => {
+  const digits = phone.replace(/\D/g, '');
+  if (digits.length === 10) {
+    return `91${digits}`;
+  }
+  return digits;
+};
 
 export const buildWaMeUrl = (phone: string, message: string): string => {
   const normalized = normalizePhone(phone);
@@ -33,6 +40,45 @@ export class WhatsAppService {
     };
   }
 
+  static async getDetailedStatus() {
+    const [pendingCount, fallbackCount] = await Promise.all([
+      prisma.whatsAppNotification.count({ where: { status: 'PENDING' } }),
+      prisma.whatsAppNotification.count({ where: { status: 'FALLBACK_LINK' } }),
+    ]);
+
+    const connected = connectionState === 'connected';
+    const enabled = config.whatsapp.enabled;
+    const adminPhoneConfigured = !!config.whatsapp.adminPhone;
+
+    let message: string;
+    if (!enabled) {
+      message = 'WhatsApp is disabled (WHATSAPP_ENABLED=false)';
+    } else if (connected) {
+      message = 'WhatsApp session active — auto-send enabled';
+    } else if (connectionState === 'qr_pending') {
+      message = 'Scan QR at GET /api/admin/whatsapp/qr to connect';
+    } else {
+      message = 'Scan QR at GET /api/admin/whatsapp/qr to enable auto-send';
+    }
+
+    if (!adminPhoneConfigured) {
+      message = 'Set WHATSAPP_ADMIN_PHONE in environment for admin alerts';
+    }
+
+    return {
+      connected,
+      state: connectionState,
+      phone: connectedPhone,
+      enabled,
+      adminPhoneConfigured,
+      setupRequired: enabled && !connected,
+      message,
+      pendingCount,
+      fallbackCount,
+      lastInitError,
+    };
+  }
+
   static getCurrentQr(): string | null {
     return currentQr;
   }
@@ -48,21 +94,29 @@ export class WhatsAppService {
     }
 
     initializing = true;
+    lastInitError = null;
 
     try {
       const { Client, LocalAuth } = await import('whatsapp-web.js');
 
+      const puppeteerConfig: Record<string, unknown> = {
+        headless: true,
+        args: ['--no-sandbox', '--disable-setuid-sandbox'],
+      };
+
+      if (process.env.PUPPETEER_EXECUTABLE_PATH) {
+        puppeteerConfig.executablePath = process.env.PUPPETEER_EXECUTABLE_PATH;
+      }
+
       client = new Client({
         authStrategy: new LocalAuth({ dataPath: config.whatsapp.sessionPath }),
-        puppeteer: {
-          headless: true,
-          args: ['--no-sandbox', '--disable-setuid-sandbox'],
-        },
+        puppeteer: puppeteerConfig,
       });
 
       client.on('qr', (qr: string) => {
         currentQr = qr;
         connectionState = 'qr_pending';
+        lastInitError = null;
         logger.info('WhatsAppService: QR code received — scan via /api/admin/whatsapp/qr');
       });
 
@@ -73,6 +127,7 @@ export class WhatsAppService {
       client.on('ready', () => {
         connectionState = 'connected';
         currentQr = null;
+        lastInitError = null;
         connectedPhone = client?.info?.wid?.user ?? null;
         logger.info('WhatsAppService: Client ready', { phone: connectedPhone });
       });
@@ -88,6 +143,7 @@ export class WhatsAppService {
 
       client.on('auth_failure', (msg: string) => {
         connectionState = 'disconnected';
+        lastInitError = `Auth failure: ${msg}`;
         logger.error('WhatsAppService: Auth failure', { msg });
       });
 
@@ -95,6 +151,7 @@ export class WhatsAppService {
     } catch (error) {
       connectionState = 'disconnected';
       client = null;
+      lastInitError = error instanceof Error ? error.message : 'Failed to initialize WhatsApp client';
       logger.error('WhatsAppService: Failed to initialize client', { error });
     } finally {
       initializing = false;
@@ -120,6 +177,10 @@ export class WhatsAppService {
         referenceId: params.referenceId,
         status: 'PENDING',
       },
+    });
+
+    void this.processPendingNotifications().catch((error) => {
+      logger.error('WhatsAppService: Immediate notification processing failed', { error });
     });
   }
 
