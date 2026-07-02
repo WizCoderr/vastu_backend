@@ -22,4 +22,4 @@ COPY . .
 COPY .env* ./
 
 # Start the application
-CMD ["bun", "run", "dev"]
+CMD ["bun", "run", "start"]

@@ -1,0 +1,15 @@
+# Dynamic Traefik config — middlewares for Vastu apps
+
+http:
+  middlewares:
+    secure-headers:
+      headers:
+        customRequestHeaders:
+          X-Forwarded-Proto: https
+
+    api-upload:
+      buffering:
+        maxRequestBodyBytes: 52428800
+        memRequestBodyBytes: 2097152
+        maxResponseBodyBytes: 52428800
+        memResponseBodyBytes: 2097152

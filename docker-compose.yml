@@ -7,9 +7,21 @@ services:
     restart: always
     env_file:
       - .env
-    ports:
-      - "127.0.0.1:3030:3030"
+    networks:
+      - default
+      - traefik-public
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=traefik-public
+      - traefik.http.routers.api.rule=Host(`api.vastuarunsharma.com`)
+      - traefik.http.routers.api.entrypoints=websecure
+      - traefik.http.routers.api.tls=true
+      - traefik.http.routers.api.tls.certresolver=letsencrypt
+      - traefik.http.routers.api.middlewares=secure-headers@file,api-upload@file
+      - traefik.http.services.api.loadbalancer.server.port=3030
 
 networks:
   default:
     name: vastu_network
+  traefik-public:
+    external: true
