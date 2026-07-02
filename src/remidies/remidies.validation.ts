@@ -73,6 +73,12 @@ export const productIdParamSchema = z.object({
   }),
 });
 
+export const productSlugParamSchema = z.object({
+  params: z.object({
+    slug: z.string().min(1),
+  }),
+});
+
 export const addToCartSchema = z.object({
   body: z.object({
     productId: idSchema,
@@ -255,5 +261,20 @@ export const stockHistoryQuerySchema = z.object({
 export const updateStockSettingsSchema = z.object({
   body: z.object({
     globalLowStockThreshold: z.number().int().nonnegative('Threshold cannot be negative'),
+  }),
+});
+
+export const quickSaleSchema = z.object({
+  body: z.object({
+    productId:    z.string().uuid('Invalid product ID'),
+    quantity:     z.coerce.number().int().positive('Quantity must be at least 1').default(1),
+    shippingCost: z.coerce.number().nonnegative('Shipping cost cannot be negative').default(0),
+  }),
+});
+
+export const dashboardStatsSchema = z.object({
+  query: z.object({
+    startDate: z.string().optional().transform((v) => (v ? new Date(v) : undefined)),
+    endDate:   z.string().optional().transform((v) => (v ? new Date(v) : undefined)),
   }),
 });

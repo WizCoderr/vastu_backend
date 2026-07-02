@@ -1,6 +1,7 @@
 import { prisma } from '../core/prisma';
 import { OrderStatus, PaymentStatus, PaymentType, PaymentProvider, DiscountType, BulkTierType, StockMovementType, CouponProductScope } from '../generated/prisma/client';
 import { StockService } from '../stock/stock.service';
+import { slugify } from '../utils/slugify';
 
 // --- CATEGORY ---
 
@@ -35,6 +36,14 @@ export const getAllProducts = async (params: { categoryId?: string; isActive?: b
     include: { category: true },
     orderBy: { createdAt: 'desc' },
   });
+};
+
+export const getActiveProductBySlug = async (slug: string) => {
+  const products = await prisma.product.findMany({
+    where: { isActive: true },
+    include: { category: true },
+  });
+  return products.find((product) => slugify(product.name) === slug) ?? null;
 };
 
 export const getCategoryById = async (categoryId: string) => {
@@ -492,4 +501,92 @@ export const updateBulkTier = async (id: string, data: {
 
 export const deleteBulkTier = async (id: string) => {
   return prisma.bulkDiscountTier.delete({ where: { id } });
+};
+
+// --- QUICK CASH SALE (POS) ---
+
+export const createQuickSale = async (params: {
+  productId:    string;
+  quantity:     number;
+  shippingCost: number;
+  adminUserId:  string;
+}) => {
+  return prisma.$transaction(async (tx) => {
+    const product = await tx.product.findUnique({ where: { id: params.productId } });
+    if (!product) throw new Error('Product not found');
+    if (product.stock < params.quantity)
+      throw new Error(`Insufficient stock (${product.stock} available)`);
+
+    const subtotal    = Number(product.price) * params.quantity;
+    const totalAmount = subtotal + params.shippingCost;
+
+    const order = await tx.order.create({
+      data: {
+        userId:          params.adminUserId,
+        subtotalAmount:  subtotal,
+        shippingCost:    params.shippingCost,
+        totalAmount,
+        status:          OrderStatus.PAID,
+        shippingName:    'Walk-in Customer',
+        shippingPhone:   '0000000000',
+        shippingAddress: 'POS Sale',
+        shippingCity:    'N/A',
+        shippingState:   'N/A',
+        shippingPostal:  '000000',
+        items: {
+          create: { productId: params.productId, quantity: params.quantity, price: product.price },
+        },
+      },
+    });
+
+    await tx.payment.create({
+      data: {
+        userId:   params.adminUserId,
+        orderId:  order.id,
+        type:     PaymentType.PRODUCT,
+        amount:   totalAmount,
+        status:   PaymentStatus.COMPLETED,
+        provider: PaymentProvider.CASH,
+      },
+    });
+
+    const { previousStock, newStock } = await StockService.recordStockChange(tx, {
+      productId:      params.productId,
+      quantityChange: -params.quantity,
+      type:           StockMovementType.ORDER,
+      reason:         'Quick cash sale (POS)',
+      referenceId:    order.id,
+      createdBy:      params.adminUserId,
+    });
+
+    return { order, product, previousStock, newStock };
+  });
+};
+
+// --- DASHBOARD STATS ---
+
+export const getOrdersForStats = async (params: { startDate?: Date; endDate?: Date }) => {
+  return prisma.order.findMany({
+    where: {
+      status: OrderStatus.PAID,
+      ...(params.startDate || params.endDate
+        ? {
+            createdAt: {
+              ...(params.startDate && { gte: params.startDate }),
+              ...(params.endDate   && { lte: params.endDate }),
+            },
+          }
+        : {}),
+    },
+    select: {
+      totalAmount:  true,
+      shippingCost: true,
+      items: {
+        select: {
+          quantity: true,
+          product:  { select: { purchasePrice: true } },
+        },
+      },
+    },
+  });
 };

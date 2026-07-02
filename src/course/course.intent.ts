@@ -77,13 +77,13 @@ export class CourseIntent {
 
             // Handle S3 Playback
             if (lecture.s3Key) {
-                const { getPresignedReadUrl } = await import('../core/s3Service');
-                const signedUrl = await getPresignedReadUrl(lecture.s3Key, lecture.s3Bucket || undefined);
+                const { resolveMediaUrl } = await import('../core/cloudinaryService');
+                const signedUrl = await resolveMediaUrl(lecture.videoUrl, lecture.s3Key, lecture.s3Bucket, 'video');
 
                 return res.json({
                     success: true,
-                    url: signedUrl,
-                    provider: 's3'
+                    url: signedUrl || lecture.videoUrl,
+                    provider: 'cloudinary'
                 });
             } else if (lecture.videoUrl) {
                 // Return external URL directly

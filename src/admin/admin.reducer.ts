@@ -26,17 +26,19 @@ export class AdminReducer {
                 }
             });
 
-            const { getPresignedReadUrl, getDirectS3Url } = await import('../core/s3Service');
+            const { resolveThumbnailUrl, getStorageUsage } = await import('../core/cloudinaryService');
 
-            // TRANSFORM DATA
             const videoAssets = await Promise.all(lectures.map(async (l) => {
                 const totalStarted = l.progress.length;
                 const completedCount = l.progress.filter(p => p.completed).length;
                 const completionRate = totalStarted > 0 ? Math.round((completedCount / totalStarted) * 100) : 0;
                 const mockDuration = "12:45";
 
-                const thumbKey = l.section.course.s3Key;
-                const signedThumb = thumbKey ? await getDirectS3Url(thumbKey, l.section.course.s3Bucket || undefined).catch(() => null) : l.section.course.thumbnail;
+                const signedThumb = await resolveThumbnailUrl(
+                    l.section.course.thumbnail,
+                    l.section.course.s3Key,
+                    l.section.course.s3Bucket
+                ) || l.section.course.thumbnail;
 
                 return {
                     id: l.id,
@@ -53,12 +55,9 @@ export class AdminReducer {
                 };
             }));
 
-            // AGGREGATE STATS
-            const { getBucketStorageUsage } = await import('../core/s3Service');
-
             let storageUsed = "0 GB";
             try {
-                const totalBytes = await getBucketStorageUsage();
+                const totalBytes = await getStorageUsage();
                 if (totalBytes > 1024 * 1024 * 1024) {
                     storageUsed = `${(totalBytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
                 } else if (totalBytes > 1024 * 1024) {
@@ -90,14 +89,25 @@ export class AdminReducer {
         }
     }
 
-    static async getStorageFiles(limit: number, cursor?: string): Promise<Result<any>> {
+    static async getStorageFiles(limit: number, cursor?: string, fileType?: 'pdf' | 'image' | 'all') {
         try {
-            const { listBucketFiles } = await import('../core/s3Service');
-            const result = await listBucketFiles(limit, cursor);
+            const { listAllStorageFiles } = await import('../core/cloudinaryService');
+            const result = await listAllStorageFiles(limit, cursor, fileType ?? 'all');
             return Result.ok(result);
         } catch (error) {
             logger.error('AdminReducer.getStorageFiles: Failed', { error });
             return Result.fail('Failed to fetch storage files');
+        }
+    }
+
+    static async deleteStorageFile(key: string, resourceType?: 'image' | 'raw' | 'video') {
+        try {
+            const { deleteByPublicId } = await import('../core/cloudinaryService');
+            await deleteByPublicId(key, resourceType ?? 'image');
+            return Result.ok({ message: 'File deleted successfully' });
+        } catch (error) {
+            logger.error('AdminReducer.deleteStorageFile: Failed', { error, key });
+            return Result.fail('Failed to delete file');
         }
     }
 
@@ -141,17 +151,6 @@ export class AdminReducer {
         } catch (error) {
             logger.error('AdminReducer.getPaymentStats: Failed', { error });
             return Result.fail('Failed to fetch payment stats');
-        }
-    }
-
-    static async deleteStorageFile(key: string): Promise<Result<any>> {
-        try {
-            const { deleteObject } = await import('../core/s3Service');
-            await deleteObject(key);
-            return Result.ok({ message: 'File deleted successfully' });
-        } catch (error) {
-            logger.error('AdminReducer.deleteStorageFile: Failed', { error, key });
-            return Result.fail('Failed to delete file');
         }
     }
 }

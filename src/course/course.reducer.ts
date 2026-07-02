@@ -30,9 +30,9 @@ export class CourseReducer {
                 }
             }
         });
-        const { getPresignedReadUrl, getDirectS3Url } = await import('../core/s3Service');
+        const { resolveThumbnailUrl, resolveResourceUrl, resolveMediaUrl } = await import('../core/cloudinaryService');
 
-        // Map Decimal to number for DTO & Sign URLs
+        // Map Decimal to number for DTO & resolve media URLs
         const dtos = await Promise.all(courses.map(async (c) => {
             return {
                 id: c.id,
@@ -40,17 +40,17 @@ export class CourseReducer {
                 description: c.description,
                 price: Number(c.price),
                 instructorId: c.instructorId,
-                thumbnail: c.s3Key ? await getDirectS3Url(c.s3Key, c.s3Bucket || undefined).catch(() => c.thumbnail) : c.thumbnail,
+                thumbnail: await resolveThumbnailUrl(c.thumbnail, c.s3Key, c.s3Bucket) || c.thumbnail,
                 studentCount: await prisma.enrollment.count({ where: { courseId: c.id } }),
                 sections: await mapCourseSections(c.sections, (l) =>
-                    getPresignedReadUrl(l.s3Key!, l.s3Bucket || undefined)
+                    resolveMediaUrl(l.videoUrl, l.s3Key, l.s3Bucket, 'video').then((url) => url || l.videoUrl)
                 ),
                 resources: await Promise.all(c.courseResources
                     .map(async (r) => ({
                         id: r.id,
                         title: r.title,
                         type: r.type,
-                        url: r.s3Key ? await getPresignedReadUrl(r.s3Key, r.s3Bucket || undefined).catch(() => '') : ''
+                        url: r.s3Key ? await resolveResourceUrl(r.s3Key, r.s3Bucket).catch(() => '') : ''
                     }))
                 ),
                 liveClasses: c.liveClasses ? c.liveClasses.map(lc => ({
@@ -105,9 +105,9 @@ export class CourseReducer {
             },
         });
 
-        const { getPresignedReadUrl, getDirectS3Url } = await import('../core/s3Service');
+        const { resolveThumbnailUrl, resolveResourceUrl, resolveMediaUrl } = await import('../core/cloudinaryService');
 
-        // Map Decimal to number for DTO & Sign URLs
+        // Map Decimal to number for DTO & resolve media URLs
         const dtos = await Promise.all(enrollments.map(async (e) => {
             const c = e.course;
             return {
@@ -116,20 +116,20 @@ export class CourseReducer {
                 description: c.description,
                 price: Number(c.price),
                 instructorId: c.instructorId,
-                thumbnail: c.s3Key ? await getDirectS3Url(c.s3Key, c.s3Bucket || undefined).catch(() => c.thumbnail) : c.thumbnail,
+                thumbnail: await resolveThumbnailUrl(c.thumbnail, c.s3Key, c.s3Bucket) || c.thumbnail,
                 isEnrolled: true,
                 serialNumber: e.serialNumber,
                 // number of students enrolled
                 studentCount: await prisma.enrollment.count({ where: { courseId: c.id } }),
                 sections: await mapCourseSections(c.sections, (l) =>
-                    getPresignedReadUrl(l.s3Key!, l.s3Bucket || undefined)
+                    resolveMediaUrl(l.videoUrl, l.s3Key, l.s3Bucket, 'video').then((url) => url || l.videoUrl)
                 ),
                 resources: await Promise.all(c.courseResources
                     .map(async (r) => ({
                         id: r.id,
                         title: r.title,
                         type: r.type,
-                        url: r.s3Key ? await getPresignedReadUrl(r.s3Key, r.s3Bucket || undefined).catch(() => '') : ''
+                        url: r.s3Key ? await resolveResourceUrl(r.s3Key, r.s3Bucket).catch(() => '') : ''
                     }))
                 ),
                 liveClasses: c.liveClasses ? c.liveClasses.map(lc => ({
@@ -179,18 +179,16 @@ export class CourseReducer {
             });
         }
 
-        const { getPresignedReadUrl, getDirectS3Url } = await import('../core/s3Service');
-        const signedThumbnail = course.s3Key
-            ? await getDirectS3Url(course.s3Key, course.s3Bucket || undefined).catch(() => course.thumbnail)
-            : course.thumbnail;
+        const { resolveThumbnailUrl, resolveResourceUrl, resolveMediaUrl } = await import('../core/cloudinaryService');
+        const signedThumbnail = await resolveThumbnailUrl(course.thumbnail, course.s3Key, course.s3Bucket) || course.thumbnail;
 
         const sectionsWithSignedUrls = await mapCourseSections(course.sections, (l) =>
-            getPresignedReadUrl(l.s3Key!, l.s3Bucket || undefined)
+            resolveMediaUrl(l.videoUrl, l.s3Key, l.s3Bucket, 'video').then((url) => url || l.videoUrl)
         );
 
         const resources = await Promise.all(course.courseResources.map(async (r) => {
             const url = r.s3Key
-                ? await getPresignedReadUrl(r.s3Key, r.s3Bucket || undefined).catch(() => '')
+                ? await resolveResourceUrl(r.s3Key, r.s3Bucket).catch(() => '')
                 : '';
 
             return {
@@ -254,7 +252,7 @@ export class CourseReducer {
             },
         });
 
-        const { getPresignedReadUrl } = await import('../core/s3Service');
+        const { resolveMediaUrl } = await import('../core/cloudinaryService');
 
         const sectionsWithSignedUrls = await Promise.all(
             sortSectionsByOrder(sections).map(async (s, i) =>
@@ -263,7 +261,7 @@ export class CourseReducer {
                     lectures: await Promise.all(s.lectures.map(async (l) => ({
                         ...l,
                         videoUrl: l.s3Key
-                            ? await getPresignedReadUrl(l.s3Key, l.s3Bucket || undefined).catch(() => l.videoUrl)
+                            ? await resolveMediaUrl(l.videoUrl, l.s3Key, l.s3Bucket, 'video').then((url) => url || l.videoUrl)
                             : l.videoUrl,
                     }))),
                 }, i + 1)

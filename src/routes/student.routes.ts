@@ -4,11 +4,14 @@ import { CourseIntent } from '../course/course.intent';
 import { ProgressIntent } from '../progress/progress.intent';
 import { AuthIntent } from '../auth/auth.intent';
 import { LiveClassStudentIntent } from '../live-class/live-class.student.intent';
-import { remidiesUserRouter } from '../remidies/remidies.routes';
+import { remidiesCatalogRouter, remidiesAuthUserRouter } from '../remidies/remidies.routes';
 
 const router = Router();
 
-// Apply auth middleware to all student routes as per requirements
+// Public shop catalog (no login required)
+router.use('/remidies', remidiesCatalogRouter);
+
+// Apply auth middleware to all other student routes
 router.use(requireAuth);
 
 // Logout route for students (invalidate token)
@@ -36,8 +39,8 @@ router.post('/device-token', LiveClassStudentIntent.registerDeviceToken as Reque
 router.delete('/device-token', LiveClassStudentIntent.removeDeviceToken as RequestHandler);
 
 // =============================================================================
-// REMIDIES E-COMMERCE CATALOG ROUTES (Non-payment)
+// REMIDIES E-COMMERCE ROUTES (cart, checkout — requires auth)
 // =============================================================================
-router.use('/remidies', remidiesUserRouter);
+router.use('/remidies', remidiesAuthUserRouter);
 
 export default router;

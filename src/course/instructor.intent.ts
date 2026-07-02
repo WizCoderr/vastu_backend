@@ -4,18 +4,21 @@ import { z } from 'zod';
 import logger from '../utils/logger';
 import { MediaService } from '../core/mediaService';
 import fs from 'fs';
-import path from 'path';
-import { PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
-import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
+import {
+    CLOUDINARY_PROVIDER,
+    CLOUDINARY_IMAGE_FOLDER,
+    CLOUDINARY_PDF_FOLDER,
+    uploadImage,
+    uploadRaw,
+    deleteAsset,
+    getSignedUploadParams,
+    resolveThumbnailUrl,
+    resolveResourceUrl,
+    resolveMediaUrl,
+    buildCloudinaryUrl,
+    isCloudinaryProvider,
+} from '../core/cloudinaryService';
 import { sectionOrderBy, sortSectionsByOrder, withSectionIndex } from './section.utils';
-
-const s3Client = new S3Client({
-    region: process.env.AWS_REGION || 'us-east-1',
-    credentials: {
-        accessKeyId: process.env.AWS_ACCESS_KEY_ID || '',
-        secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY || ''
-    }
-});
 
 export class InstructorIntent {
     // Create a new course
@@ -29,18 +32,24 @@ export class InstructorIntent {
                 instructorId: z.string(),
                 s3Key: z.string().optional(),
                 s3Bucket: z.string().optional(),
+                thumbnail: z.string().optional(),
+                url: z.string().optional(),
                 accessDurationDays: z.number().int().positive().optional().nullable(),
             });
             const data = schema.parse(req.body);
+
+            const publicId = data.s3Key;
+            const provider = data.s3Bucket || CLOUDINARY_PROVIDER;
+            const thumbnail = data.url || data.thumbnail || (publicId ? buildCloudinaryUrl(publicId) : undefined);
 
             const course = await prisma.course.create({
                 data: {
                     title: data.title,
                     description: data.description ?? undefined,
                     price: data.price.toString(),
-                    thumbnail: data.s3Key ? `s3://${data.s3Bucket || process.env.AWS_BUCKET_NAME}/${data.s3Key}` : undefined,
-                    s3Key: data.s3Key ?? undefined,
-                    s3Bucket: data.s3Bucket || process.env.AWS_BUCKET_NAME || undefined,
+                    thumbnail,
+                    s3Key: publicId ?? undefined,
+                    s3Bucket: publicId ? provider : undefined,
                     mediaType: 'image',
                     instructorId: data.instructorId,
                     published: true,
@@ -88,25 +97,12 @@ export class InstructorIntent {
                     }
                 }
             });
-            const { getPresignedReadUrl, getDirectS3Url } = await import('../core/s3Service');
-
             const coursesWithUrls = await Promise.all(
                 courses.map(async (course) => {
-                    let thumbUrl = course.thumbnail;
-                    if (course.s3Key) {
-                        try {
-                            thumbUrl = await getDirectS3Url(course.s3Key, course.s3Bucket || undefined);
-                        } catch (e) {
-                            logger.error('Failed to sign thumbnail', { s3Key: course.s3Key });
-                        }
-                    }
+                    const thumbUrl = await resolveThumbnailUrl(course.thumbnail, course.s3Key, course.s3Bucket) || course.thumbnail;
 
-                    // Sign Resources
                     const courseResources = await Promise.all(course.courseResources.map(async (r) => {
-                        let url = '';
-                        try {
-                            url = await getPresignedReadUrl(r.s3Key, r.s3Bucket);
-                        } catch (e) { }
+                        const url = await resolveResourceUrl(r.s3Key, r.s3Bucket);
                         return { ...r, url };
                     }));
 
@@ -117,15 +113,11 @@ export class InstructorIntent {
                             liveClasses: section.liveClasses,
                         }, i + 1)
                     );
-                    // Sign lectures
                     const signedSections = await Promise.all(sections.map(async (section) => {
                         const lectures = await Promise.all(section.lectures.map(async (lecture) => {
-                            let videoUrl = lecture.videoUrl;
-                            if (lecture.s3Key) {
-                                try {
-                                    videoUrl = await getPresignedReadUrl(lecture.s3Key, lecture.s3Bucket || undefined);
-                                } catch (e) { /* ignore signing error */ }
-                            }
+                            const videoUrl = lecture.s3Key
+                                ? await resolveMediaUrl(lecture.videoUrl, lecture.s3Key, lecture.s3Bucket, 'video') || lecture.videoUrl
+                                : lecture.videoUrl;
                             return { ...lecture, videoUrl };
                         }));
                         return { ...section, lectures };
@@ -214,47 +206,25 @@ export class InstructorIntent {
         }
     }
 
-    // Generate a presigned URL for direct client-side S3 upload
+    // Generate signed upload params for direct client-side Cloudinary upload
     static async getPresignedUrl(req: Request, res: Response) {
-        logger.info('InstructorIntent.getPresignedUrl: Generating presigned URL');
+        logger.info('InstructorIntent.getPresignedUrl: Generating Cloudinary signed upload params');
         try {
             const schema = z.object({
                 fileName: z.string().min(1),
                 fileType: z.enum(['image', 'video', 'pdf']),
-                contentType: z.string().min(1) // e.g., 'image/jpeg', 'video/mp4', 'application/pdf'
+                contentType: z.string().min(1)
             });
             const { fileName, fileType, contentType } = schema.parse(req.body);
 
-            const folder = fileType === 'video' ? 'videos' : (fileType === 'image' ? 'images' : 'pdfs');
-            const s3Key = `vastu-courses/${folder}/${Date.now()}-${fileName}`;
-            const bucketName = process.env.AWS_BUCKET_NAME!;
+            const result = getSignedUploadParams(fileName, fileType, contentType);
 
-            const command = new PutObjectCommand({
-                Bucket: bucketName,
-                Key: s3Key,
-                ContentType: contentType,
-
-            });
-
-            const presignedUrl = await getSignedUrl(s3Client, command, { expiresIn: 3600 }); // URL valid for 1 hour
-
-            // Plain JSON response structure
-            const result = {
-                url: presignedUrl,
-                method: 'PUT',
-                headers: {
-                    'Content-Type': contentType
-                },
-                s3Key: s3Key,
-                s3Bucket: bucketName
-            };
-
-            logger.info('InstructorIntent.getPresignedUrl: Presigned URL generated successfully', { s3Key });
+            logger.info('InstructorIntent.getPresignedUrl: Signed upload params generated', { publicId: result.s3Key });
             res.status(200).json(result);
 
         } catch (error: any) {
-            logger.error('InstructorIntent.getPresignedUrl: Failed to generate presigned URL', { error });
-            res.status(400).json({ error: 'Failed to generate presigned URL', details: error.message });
+            logger.error('InstructorIntent.getPresignedUrl: Failed to generate signed upload params', { error });
+            res.status(400).json({ error: 'Failed to generate signed upload params', details: error.message });
         }
     }
 
@@ -270,47 +240,47 @@ export class InstructorIntent {
         try {
             logger.info(`Unified upload processing: ${req.file.originalname} (${fileType})`);
 
-            // 1. Determine S3 destination
-            const fileName = path.basename(inputPath);
             if (fileType === 'video') {
                 return res.status(400).json({ success: false, error: 'Video upload is no longer supported. Please provide a video URL instead.' });
             }
-            const folder = fileType === 'image' ? 'images' : 'pdfs';
-            const s3Key = `vastu-courses/${folder}/${Date.now()}-${req.file.originalname}`;
-            const bucketName = process.env.AWS_BUCKET_NAME!;
 
-            // 2. Upload to S3
+            const folder = fileType === 'image' ? CLOUDINARY_IMAGE_FOLDER : CLOUDINARY_PDF_FOLDER;
+
             const fileBuffer = fs.readFileSync(inputPath);
-            await s3Client.send(new PutObjectCommand({
-                Bucket: bucketName,
-                Key: s3Key,
-                Body: fileBuffer,
-                ContentType: req.file.mimetype || (fileType === 'image' ? 'image/jpeg' : 'application/pdf')
-            }));
+            const uploadResult = fileType === 'image'
+                ? await uploadImage(fileBuffer, folder, req.file.originalname, req.file.mimetype || 'image/jpeg')
+                : await uploadRaw(fileBuffer, folder, req.file.originalname, req.file.mimetype || 'application/pdf');
 
-            logger.info(`Uploaded to S3: ${s3Key}`);
+            logger.info(`Uploaded to Cloudinary: ${uploadResult.publicId}`);
 
-            // 3. Handle PDF Resource metadata (legacy support from uploadPdfResource)
             if (fileType === 'pdf' && req.body.courseId) {
+                const resourceType = (req.body.type === 'PAID' ? 'PAID' : 'FREE') as 'FREE' | 'PAID';
                 const resource = await prisma.courseResource.create({
                     data: {
                         courseId: req.body.courseId,
-                        title: req.body.title || req.file.originalname,
-                        s3Key,
-                        s3Bucket: bucketName,
-                        type: req.body.type || 'FREE',
+                        title: req.body.title || req.file.originalname.replace(/\.pdf$/i, ''),
+                        s3Key: uploadResult.publicId,
+                        s3Bucket: CLOUDINARY_PROVIDER,
+                        type: resourceType,
                     },
                 });
-                return res.status(201).json({ success: true, data: { resource, url: `s3://${bucketName}/${s3Key}` } });
+                return res.status(201).json({
+                    success: true,
+                    data: {
+                        resource,
+                        url: uploadResult.url,
+                        s3Key: uploadResult.publicId,
+                        s3Bucket: CLOUDINARY_PROVIDER,
+                    },
+                });
             }
 
-            // 4. Standard response for images/videos
             res.json({
                 success: true,
                 data: {
-                    s3Key,
-                    s3Bucket: bucketName,
-                    url: `s3://${bucketName}/${s3Key}`,
+                    s3Key: uploadResult.publicId,
+                    s3Bucket: CLOUDINARY_PROVIDER,
+                    url: uploadResult.url,
                     fileType
                 }
             });
@@ -374,10 +344,9 @@ export class InstructorIntent {
             if (!section || section.courseId !== courseId) {
                 return res.status(404).json({ error: 'Section not found for this course' });
             }
-            const { deleteObject } = await import('../core/s3Service');
             for (const lecture of section.lectures) {
                 if (lecture.s3Key) {
-                    await deleteObject(lecture.s3Key, lecture.s3Bucket ?? undefined);
+                    await deleteAsset(lecture.s3Key, 'video');
                 }
                 await prisma.lecture.delete({ where: { id: lecture.id } });
             }
@@ -419,26 +388,22 @@ export class InstructorIntent {
                 // Non-blocking, continue with course deletion
             }
 
-            // 2. Delete Course Resources from S3
-            const { deleteObject } = await import('../core/s3Service');
             for (const resource of course.courseResources) {
                 if (resource.s3Key) {
-                    await deleteObject(resource.s3Key, resource.s3Bucket || undefined);
+                    await deleteAsset(resource.s3Key, 'raw');
                 }
             }
 
-            // 3. Delete Lecture Videos from S3
             for (const section of course.sections) {
                 for (const lecture of section.lectures) {
                     if (lecture.s3Key) {
-                        await deleteObject(lecture.s3Key, lecture.s3Bucket || undefined);
+                        await deleteAsset(lecture.s3Key, 'video');
                     }
                 }
             }
 
-            // 4. Delete Course Thumbnail from S3
             if (course.s3Key) {
-                await deleteObject(course.s3Key, course.s3Bucket || undefined);
+                await deleteAsset(course.s3Key, 'image');
             }
 
             // 5. Delete Course (Prisma will cascade delete other related DB records)
@@ -469,7 +434,7 @@ export class InstructorIntent {
                     courseId: data.courseId,
                     title: data.title,
                     s3Key: data.s3Key,
-                    s3Bucket: data.s3Bucket || process.env.AWS_BUCKET_NAME!,
+                    s3Bucket: data.s3Bucket || CLOUDINARY_PROVIDER,
                     type: data.type
                 }
             });
@@ -490,15 +455,8 @@ export class InstructorIntent {
                 where: { courseId }
             });
 
-            const { getPresignedReadUrl } = await import('../core/s3Service');
-
             const resourcesWithUrls = await Promise.all(resources.map(async (r) => {
-                let url = '';
-                try {
-                    url = await getPresignedReadUrl(r.s3Key, r.s3Bucket);
-                } catch (e) {
-                    logger.error('Failed to sign resource URL', { error: e });
-                }
+                const url = await resolveResourceUrl(r.s3Key, r.s3Bucket);
                 return { ...r, url };
             }));
 
@@ -518,11 +476,10 @@ export class InstructorIntent {
                 return res.status(404).json({ error: 'Resource not found' });
             }
 
-            // Delete from S3
-            const { deleteObject } = await import('../core/s3Service');
-            await deleteObject(resource.s3Key, resource.s3Bucket);
+            if (isCloudinaryProvider(resource.s3Bucket)) {
+                await deleteAsset(resource.s3Key, 'raw');
+            }
 
-            // Delete from DB
             await prisma.courseResource.delete({ where: { id: resourceId } });
 
             res.json({ success: true, message: 'Resource deleted' });
@@ -589,8 +546,8 @@ export class InstructorIntent {
 
                 if (data.s3Key) {
                     courseUpdateIs.s3Key = data.s3Key;
-                    courseUpdateIs.s3Bucket = data.s3Bucket || process.env.AWS_BUCKET_NAME;
-                    courseUpdateIs.thumbnail = `s3://${courseUpdateIs.s3Bucket}/${courseUpdateIs.s3Key}`;
+                    courseUpdateIs.s3Bucket = data.s3Bucket || CLOUDINARY_PROVIDER;
+                    courseUpdateIs.thumbnail = buildCloudinaryUrl(data.s3Key);
                 } else if (data.s3Key === null) {
                     // Explicit removal if null passed
                 }
@@ -611,7 +568,7 @@ export class InstructorIntent {
                             courseId,
                             title: resData.title,
                             s3Key: resData.s3Key,
-                            s3Bucket: resData.s3Bucket || process.env.AWS_BUCKET_NAME!,
+                            s3Bucket: resData.s3Bucket || CLOUDINARY_PROVIDER,
                             type: resData.type as any
                         };
 
@@ -624,7 +581,7 @@ export class InstructorIntent {
                                     data: {
                                         title: resData.title,
                                         s3Key: resData.s3Key,
-                                        s3Bucket: resData.s3Bucket || process.env.AWS_BUCKET_NAME!,
+                                        s3Bucket: resData.s3Bucket || CLOUDINARY_PROVIDER,
                                         type: resData.type as any
                                     }
                                 });
@@ -688,12 +645,12 @@ export class InstructorIntent {
 
                             for (const lecData of sectionData.lectures) {
                                 // Construct videoUrl if s3Key present
-                                const bucket = lecData.s3Bucket || process.env.AWS_BUCKET_NAME!;
+                                const provider = lecData.s3Bucket || CLOUDINARY_PROVIDER;
 
                                 const lecPayload: any = {
                                     title: lecData.title,
-                                    videoProvider: lecData.videoProvider || 's3',
-                                    s3Bucket: bucket,
+                                    videoProvider: lecData.videoProvider || CLOUDINARY_PROVIDER,
+                                    s3Bucket: provider,
                                     muxAssetId: lecData.muxAssetId,
                                     muxPlaybackId: lecData.muxPlaybackId,
                                 };
@@ -701,8 +658,8 @@ export class InstructorIntent {
                                 if (lecData.s3Key !== undefined) {
                                     lecPayload.s3Key = lecData.s3Key;
                                     if (lecData.s3Key) {
-                                        lecPayload.videoUrl = `s3://${bucket}/${lecData.s3Key}`;
-                                        lecPayload.videoProvider = 's3';
+                                        lecPayload.videoUrl = buildCloudinaryUrl(lecData.s3Key, 'video');
+                                        lecPayload.videoProvider = CLOUDINARY_PROVIDER;
                                     } else {
                                         // S3 Key explicitly removed
                                         if (lecData.videoUrl !== undefined) {
@@ -767,37 +724,23 @@ export class InstructorIntent {
             let response: any = updatedCourse;
 
             if (updatedCourse) {
-                const { getPresignedReadUrl, getDirectS3Url } = await import('../core/s3Service');
+                const thumbnail = await resolveThumbnailUrl(
+                    updatedCourse.thumbnail,
+                    updatedCourse.s3Key,
+                    updatedCourse.s3Bucket
+                ) || updatedCourse.thumbnail;
 
-                let thumbnail = updatedCourse.thumbnail;
-                // Sign Thumbnail
-                if (updatedCourse.s3Key) {
-                    try {
-                        thumbnail = await getDirectS3Url(updatedCourse.s3Key, updatedCourse.s3Bucket || undefined);
-                    } catch (e) {
-                        logger.error('Failed to sign thumbnail', { s3Key: updatedCourse.s3Key });
-                    }
-                }
-
-                // Sign Resources
                 const courseResources = await Promise.all(updatedCourse.courseResources.map(async (r) => {
-                    let url = '';
-                    try {
-                        url = await getPresignedReadUrl(r.s3Key, r.s3Bucket);
-                    } catch (e) { }
+                    const url = await resolveResourceUrl(r.s3Key, r.s3Bucket);
                     return { ...r, url };
                 }));
 
-                // Sign Lectures
                 const sections = await Promise.all(
                     sortSectionsByOrder(updatedCourse.sections).map(async (section, i) => {
                         const lectures = await Promise.all(section.lectures.map(async (lecture) => {
-                            let videoUrl = lecture.videoUrl;
-                            if (lecture.s3Key) {
-                                try {
-                                    videoUrl = await getPresignedReadUrl(lecture.s3Key, lecture.s3Bucket || undefined);
-                                } catch (e) { }
-                            }
+                            const videoUrl = lecture.s3Key
+                                ? await resolveMediaUrl(lecture.videoUrl, lecture.s3Key, lecture.s3Bucket, 'video') || lecture.videoUrl
+                                : lecture.videoUrl;
                             return { ...lecture, videoUrl };
                         }));
                         return withSectionIndex({ ...section, lectures }, i + 1);
@@ -851,24 +794,10 @@ export class InstructorIntent {
                 return res.status(404).json({ error: 'Course not found' });
             }
 
-            const { getPresignedReadUrl, getDirectS3Url } = await import('../core/s3Service');
+            const thumbnail = await resolveThumbnailUrl(course.thumbnail, course.s3Key, course.s3Bucket) || course.thumbnail;
 
-            // 1. Sign Course Thumbnail
-            let thumbnail = course.thumbnail;
-            if (course.s3Key) {
-                try {
-                    thumbnail = await getDirectS3Url(course.s3Key, course.s3Bucket || undefined);
-                } catch (e) {
-                    logger.error('Failed to sign thumbnail', { s3Key: course.s3Key });
-                }
-            }
-
-            // 2. Sign Resource URLs
             const resources = await Promise.all(course.courseResources.map(async (r) => {
-                let url = '';
-                try {
-                    url = await getPresignedReadUrl(r.s3Key, r.s3Bucket);
-                } catch (e) { }
+                const url = await resolveResourceUrl(r.s3Key, r.s3Bucket);
                 return { ...r, url };
             }));
 
@@ -882,14 +811,9 @@ export class InstructorIntent {
             const sections = await Promise.all(
                 sortSectionsByOrder(course.sections).map(async (section, i) => {
                     const lectures = await Promise.all(section.lectures.map(async (lecture) => {
-                        let videoUrl = lecture.videoUrl;
-                        if (lecture.s3Key) {
-                            try {
-                                videoUrl = await getPresignedReadUrl(lecture.s3Key, lecture.s3Bucket || undefined);
-                            } catch (e) {
-                                logger.error('Failed to sign video', { s3Key: lecture.s3Key });
-                            }
-                        }
+                        const videoUrl = lecture.s3Key
+                            ? await resolveMediaUrl(lecture.videoUrl, lecture.s3Key, lecture.s3Bucket, 'video') || lecture.videoUrl
+                            : lecture.videoUrl;
                         return { ...lecture, videoUrl };
                     }));
                     return withSectionIndex({ ...section, lectures, liveClasses: section.liveClasses }, i + 1);

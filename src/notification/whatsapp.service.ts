@@ -113,11 +113,23 @@ export class WhatsAppService {
         puppeteer: puppeteerConfig,
       });
 
-      client.on('qr', (qr: string) => {
+      client.on('qr', async (qr: string) => {
         currentQr = qr;
         connectionState = 'qr_pending';
         lastInitError = null;
-        logger.info('WhatsAppService: QR code received — scan via /api/admin/whatsapp/qr');
+
+        try {
+          const QRCode = await import('qrcode');
+          const terminalQr = await (QRCode as any).toString(qr, { type: 'terminal', small: true });
+          console.log('\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+          console.log('  WhatsApp QR — Scan with WhatsApp to connect');
+          console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
+          console.log(terminalQr);
+          console.log('  Or visit GET /api/admin/whatsapp/qr for the image');
+          console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
+        } catch {
+          logger.info('WhatsAppService: QR code received — scan via /api/admin/whatsapp/qr');
+        }
       });
 
       client.on('authenticated', () => {
@@ -151,8 +163,9 @@ export class WhatsAppService {
     } catch (error) {
       connectionState = 'disconnected';
       client = null;
-      lastInitError = error instanceof Error ? error.message : 'Failed to initialize WhatsApp client';
-      logger.error('WhatsAppService: Failed to initialize client', { error });
+      const msg = error instanceof Error ? error.message : String(error);
+      lastInitError = msg;
+      logger.error('WhatsAppService: Failed to initialize client', { error: msg });
     } finally {
       initializing = false;
     }
@@ -288,5 +301,19 @@ export class WhatsAppService {
     const QRCode = await import('qrcode');
     const dataUrl = await QRCode.toDataURL(currentQr);
     return { qr: dataUrl, state: connectionState };
+  }
+
+  static async reconnect(): Promise<void> {
+    if (client) {
+      try { await client.destroy(); } catch { /* ignore */ }
+      client = null;
+    }
+    connectionState = 'disconnected';
+    currentQr = null;
+    connectedPhone = null;
+    initializing = false;
+    lastInitError = null;
+    logger.info('WhatsAppService: Reconnecting — watch logs for QR code');
+    await this.initClient();
   }
 }

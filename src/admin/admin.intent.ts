@@ -95,9 +95,10 @@ export class AdminIntent {
         logger.info('AdminIntent.getStorageFiles: Listing storage files');
         const limit = Math.min(Number(req.query.limit) || 20, 100);
         const cursor = req.query.cursor as string | undefined;
+        const type = (req.query.type as 'pdf' | 'image' | 'all' | undefined) ?? 'all';
 
         const { AdminReducer } = await import('./admin.reducer');
-        const result = await AdminReducer.getStorageFiles(limit, cursor);
+        const result = await AdminReducer.getStorageFiles(limit, cursor, type);
 
         if (result.success) {
             res.status(200).json(result.data);
@@ -108,14 +109,15 @@ export class AdminIntent {
 
     static async deleteStorageFile(req: Request, res: Response) {
         const key = req.query.key as string;
-        logger.info('AdminIntent.deleteStorageFile: Deleting file', { key });
+        const resourceType = req.query.resourceType as 'image' | 'raw' | 'video' | undefined;
+        logger.info('AdminIntent.deleteStorageFile: Deleting file', { key, resourceType });
 
         if (!key) {
             return res.status(400).json({ error: 'Missing key parameter' });
         }
 
         const { AdminReducer } = await import('./admin.reducer');
-        const result = await AdminReducer.deleteStorageFile(key);
+        const result = await AdminReducer.deleteStorageFile(key, resourceType);
 
         if (result.success) {
             res.status(200).json(result.data);

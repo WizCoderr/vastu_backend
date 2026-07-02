@@ -10,33 +10,31 @@ if (!fs.existsSync(tempDir)) {
 const upload = multer({ dest: tempDir });
 
 // ─────────────────────────────────────────────
-// USER CATALOG ROUTES  (mounted under /api/student/remidies)
+// PUBLIC CATALOG ROUTES  (no auth — shop browse)
+// Mounted under /api/student/remidies, /api/remidies/user, /api/public
+// ─────────────────────────────────────────────
+export const remidiesCatalogRouter = Router();
+
+remidiesCatalogRouter.get('/categories', ctrl.getPublicCategories as RequestHandler);
+remidiesCatalogRouter.get('/products/all', ctrl.getPublicAllProducts as RequestHandler);
+remidiesCatalogRouter.get('/products/slug/:slug', ctrl.getPublicProductBySlug as RequestHandler);
+remidiesCatalogRouter.get('/products', ctrl.getPublicProducts as RequestHandler);
+remidiesCatalogRouter.get('/products/:id', ctrl.getPublicProductById as RequestHandler);
+
+// ─────────────────────────────────────────────
+// AUTHENTICATED USER ROUTES  (cart, checkout, orders)
 // Note: Payment specific routes are now in payment module
 // ─────────────────────────────────────────────
-export const remidiesUserRouter = Router();
+export const remidiesAuthUserRouter = Router();
 
-// Categories (read-only for users)
-remidiesUserRouter.get('/categories', ctrl.getCategories as RequestHandler);
-
-// Products (read-only for users)
-remidiesUserRouter.get('/products/all', ctrl.getAllProducts as RequestHandler);
-remidiesUserRouter.get('/products', ctrl.getProducts as RequestHandler);
-
-// Cart
-remidiesUserRouter.get('/cart', ctrl.getCart as RequestHandler);
-remidiesUserRouter.post('/cart', ctrl.addToCart as RequestHandler);
-remidiesUserRouter.put('/cart/:productId', ctrl.updateCartItem as RequestHandler);
-remidiesUserRouter.delete('/cart/:productId', ctrl.removeCartItem as RequestHandler);
-
-// Checkout
-remidiesUserRouter.post('/checkout', ctrl.createOrder as RequestHandler);
-
-// Order History (Read-only view)
-remidiesUserRouter.get('/orders', ctrl.getUserOrders as RequestHandler);
-
-// Coupons (user)
-remidiesUserRouter.get('/coupons', ctrl.getMyCoupons as RequestHandler);
-remidiesUserRouter.post('/coupons/validate', ctrl.validateCoupon as RequestHandler);
+remidiesAuthUserRouter.get('/cart', ctrl.getCart as RequestHandler);
+remidiesAuthUserRouter.post('/cart', ctrl.addToCart as RequestHandler);
+remidiesAuthUserRouter.put('/cart/:productId', ctrl.updateCartItem as RequestHandler);
+remidiesAuthUserRouter.delete('/cart/:productId', ctrl.removeCartItem as RequestHandler);
+remidiesAuthUserRouter.post('/checkout', ctrl.createOrder as RequestHandler);
+remidiesAuthUserRouter.get('/orders', ctrl.getUserOrders as RequestHandler);
+remidiesAuthUserRouter.get('/coupons', ctrl.getMyCoupons as RequestHandler);
+remidiesAuthUserRouter.post('/coupons/validate', ctrl.validateCoupon as RequestHandler);
 
 // ─────────────────────────────────────────────
 // ADMIN CATALOG ROUTES  (mounted under /api/admin/remidies)
@@ -59,6 +57,7 @@ remidiesAdminRouter.delete('/products/:id', ctrl.deleteProduct as RequestHandler
 
 // Order management
 remidiesAdminRouter.get('/orders', ctrl.getAllOrders as RequestHandler);
+remidiesAdminRouter.post('/orders/quick-sale', ctrl.createQuickSale as RequestHandler);
 remidiesAdminRouter.get('/orders/:id', ctrl.getOrder as RequestHandler);
 remidiesAdminRouter.put('/orders/:id/status', ctrl.updateOrderStatus as RequestHandler);
 
@@ -81,3 +80,6 @@ remidiesAdminRouter.post('/bulk-tiers', ctrl.createBulkTier as RequestHandler);
 remidiesAdminRouter.get('/bulk-tiers', ctrl.getBulkTiers as RequestHandler);
 remidiesAdminRouter.put('/bulk-tiers/:id', ctrl.updateBulkTier as RequestHandler);
 remidiesAdminRouter.delete('/bulk-tiers/:id', ctrl.deleteBulkTier as RequestHandler);
+
+// Dashboard stats (admin)
+remidiesAdminRouter.get('/dashboard-stats', ctrl.getDashboardStats as RequestHandler);

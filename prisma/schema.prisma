@@ -251,6 +251,7 @@ enum PaymentType {
 
 enum PaymentProvider {
   RAZORPAY
+  CASH
 }
 
 model Payment {
@@ -379,8 +380,9 @@ model Product {
   name        String
   description String?
   images      Json    @default("[]")
-  price       Decimal @db.Decimal(10, 2)
-  stock       Int     @default(0)
+  price         Decimal  @db.Decimal(10, 2)
+  purchasePrice Decimal? @db.Decimal(10, 2)
+  stock         Int      @default(0)
   isActive    Boolean @default(true)
 
   lowStockThreshold   Int?
@@ -496,10 +498,11 @@ model Order {
   userId String
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  subtotalAmount Decimal @db.Decimal(10, 2) @default(0)
-  bulkDiscount   Decimal @db.Decimal(10, 2) @default(0)
-  couponDiscount Decimal @db.Decimal(10, 2) @default(0)
-  totalAmount    Decimal @db.Decimal(10, 2)
+  subtotalAmount Decimal  @db.Decimal(10, 2) @default(0)
+  bulkDiscount   Decimal  @db.Decimal(10, 2) @default(0)
+  couponDiscount Decimal  @db.Decimal(10, 2) @default(0)
+  shippingCost   Decimal? @db.Decimal(10, 2) @default(0)
+  totalAmount    Decimal  @db.Decimal(10, 2)
   status         OrderStatus @default(PENDING)
 
   shippingName    String

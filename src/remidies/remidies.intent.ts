@@ -83,7 +83,17 @@ export const deleteProduct = async (id: string) => {
 };
 
 export const getProductById = async (id: string) => {
-  return reducer.getProductById(id);
+  const product = await reducer.getProductById(id);
+  if (!product) return null;
+  const price = Number(product.price);
+  return { ...product, price, rate: price };
+};
+
+export const getProductBySlug = async (slug: string) => {
+  const product = await reducer.getActiveProductBySlug(slug);
+  if (!product) return null;
+  const price = Number(product.price);
+  return { ...product, price, rate: price };
 };
 
 export const getAllProducts = async (params: { categoryId?: string; isActive?: boolean }) => {
@@ -735,4 +745,64 @@ export const deleteBulkTier = async (id: string) => {
   const existing = tiers.find((t) => t.id === id);
   if (!existing) throw new Error('Bulk discount tier not found');
   return reducer.deleteBulkTier(id);
+};
+
+// --- QUICK CASH SALE (POS) ---
+
+export const createQuickSale = async (params: {
+  productId:    string;
+  quantity:     number;
+  shippingCost: number;
+  adminUserId:  string;
+}) => {
+  const result = await reducer.createQuickSale(params);
+
+  await StockService.checkAndQueueLowStockAlert(
+    result.product.id,
+    result.previousStock,
+    result.newStock,
+    result.product.name,
+  );
+
+  if (config.whatsapp.adminPhone) {
+    await WhatsAppService.queueNotification({
+      type:           'NEW_ORDER',
+      recipientPhone: config.whatsapp.adminPhone,
+      message: WhatsAppMessages.newOrder({
+        orderId:      result.order.id,
+        totalAmount:  Number(result.order.totalAmount),
+        itemCount:    1,
+        shippingName: 'Walk-in Customer (POS)',
+        shippingCity: 'POS',
+      }),
+      referenceId: result.order.id,
+    });
+  }
+
+  return result.order;
+};
+
+// --- DASHBOARD STATS ---
+
+export const getDashboardStats = async (params: { startDate?: Date; endDate?: Date }) => {
+  const orders = await reducer.getOrdersForStats(params);
+
+  let totalSales        = 0;
+  let totalPurchaseCost = 0;
+  let totalShipping     = 0;
+
+  for (const order of orders) {
+    totalSales    += Number(order.totalAmount);
+    totalShipping += Number(order.shippingCost ?? 0);
+    for (const item of order.items) {
+      totalPurchaseCost += Number(item.product.purchasePrice ?? 0) * item.quantity;
+    }
+  }
+
+  return {
+    totalSales,
+    totalPurchaseCost,
+    totalProfit: totalSales - totalPurchaseCost - totalShipping,
+    orderCount:  orders.length,
+  };
 };
