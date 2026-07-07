@@ -109,7 +109,7 @@ This project strictly follows the **MVI (Model-View-Intent)** architecture:
 - `POST /api/payments/create-intent` - Initialize payment
 - `POST /api/payments/webhook` - Stripe webhook handler
 
-> **Note**: For full API documentation, see [API_ROUTES.md](./API_ROUTES.md).
+> **Note**: For Remidies (product shop) API documentation, see [REMIDIES_API.md](./REMIDIES_API.md).
 
 ## Structure
 

@@ -28,6 +28,7 @@ import {
   updateStockSettingsSchema,
   quickSaleSchema,
   dashboardStatsSchema,
+  inventorySummarySchema,
 } from './remidies.validation';
 import {
     uploadImage,
@@ -174,7 +175,7 @@ export const getCategories: RequestHandler = async (_req, res, next) => {
 };
 
 const sanitizePublicProduct = <T extends Record<string, unknown>>(product: T) => {
-  const { lowStockThreshold, lowStockAlertSentAt, ...rest } = product;
+  const { lowStockThreshold, lowStockAlertSentAt, purchasePrice, ...rest } = product;
   return rest;
 };
 
@@ -613,5 +614,13 @@ export const getDashboardStats: RequestHandler = async (req, res, next) => {
     const { startDate, endDate } = dashboardStatsSchema.parse(req).query;
     const stats = await intent.getDashboardStats({ startDate, endDate });
     res.status(200).json({ success: true, data: stats });
+  } catch (error) { next(error); }
+};
+
+export const getInventorySummary: RequestHandler = async (req, res, next) => {
+  try {
+    const { startDate, endDate } = inventorySummarySchema.parse(req).query;
+    const data = await intent.getInventorySummary({ startDate, endDate });
+    res.status(200).json({ success: true, data });
   } catch (error) { next(error); }
 };

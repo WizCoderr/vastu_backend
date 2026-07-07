@@ -67,6 +67,7 @@ remidiesAdminRouter.post('/products/:id/stock/adjust', ctrl.adjustProductStock a
 remidiesAdminRouter.get('/products/:id/stock/history', ctrl.getProductStockHistory as RequestHandler);
 remidiesAdminRouter.get('/settings/stock', ctrl.getStockSettings as RequestHandler);
 remidiesAdminRouter.put('/settings/stock', ctrl.updateStockSettings as RequestHandler);
+remidiesAdminRouter.get('/inventory/summary', ctrl.getInventorySummary as RequestHandler);
 
 // Coupon management (admin)
 remidiesAdminRouter.post('/coupons', ctrl.createCoupon as RequestHandler);

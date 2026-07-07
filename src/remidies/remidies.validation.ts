@@ -34,6 +34,7 @@ export const createProductSchema = z.object({
     description: z.string().optional(),
     images: z.array(z.string()).max(10).optional(),
     price: z.coerce.number().min(0, 'Price cannot be negative'),
+    purchasePrice: z.coerce.number().min(0, 'Purchase price cannot be negative').nullable().optional(),
     stock: z.coerce.number().int().nonnegative('Stock cannot be negative'),
     isActive: z.preprocess((val) => val === 'true' || val === true, z.boolean()).optional(),
     categoryId: idSchema,
@@ -51,6 +52,7 @@ export const updateProductSchema = z.object({
     images: z.array(z.string()).max(10).optional(),
     imagesToKeep: z.array(z.string()).optional(),
     price: z.coerce.number().min(0).optional(),
+    purchasePrice: z.coerce.number().min(0, 'Purchase price cannot be negative').nullable().optional(),
     stock: z.coerce.number().int().nonnegative().optional(),
     isActive: z.preprocess((val) => val === 'true' || val === true, z.boolean()).optional(),
     categoryId: idSchema.optional(),
@@ -278,3 +280,5 @@ export const dashboardStatsSchema = z.object({
     endDate:   z.string().optional().transform((v) => (v ? new Date(v) : undefined)),
   }),
 });
+
+export const inventorySummarySchema = dashboardStatsSchema;

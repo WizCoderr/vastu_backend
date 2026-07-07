@@ -59,6 +59,7 @@ export const createProduct = async (data: {
   description?: string;
   images?: string[];
   price: number;
+  purchasePrice?: number | null;
   stock: number;
   isActive?: boolean;
   categoryId: string;
@@ -71,6 +72,7 @@ export const createProduct = async (data: {
         description: data.description,
         images: data.images ?? [],
         price: data.price,
+        purchasePrice: data.purchasePrice,
         stock: 0,
         isActive: data.isActive,
         categoryId: data.categoryId,
@@ -581,12 +583,38 @@ export const getOrdersForStats = async (params: { startDate?: Date; endDate?: Da
     select: {
       totalAmount:  true,
       shippingCost: true,
+      payment:      { select: { provider: true } },
       items: {
         select: {
           quantity: true,
           product:  { select: { purchasePrice: true } },
         },
       },
+    },
+  });
+};
+
+export const getSoldItemsForInventory = async (params: { startDate?: Date; endDate?: Date }) => {
+  return prisma.orderItem.findMany({
+    where: {
+      order: {
+        status: OrderStatus.PAID,
+        ...(params.startDate || params.endDate
+          ? {
+              createdAt: {
+                ...(params.startDate && { gte: params.startDate }),
+                ...(params.endDate   && { lte: params.endDate }),
+              },
+            }
+          : {}),
+      },
+    },
+    select: {
+      productId: true,
+      quantity:  true,
+      price:     true,
+      product:   { select: { purchasePrice: true } },
+      order:     { select: { payment: { select: { provider: true } } } },
     },
   });
 };

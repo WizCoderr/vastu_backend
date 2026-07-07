@@ -1,5 +1,5 @@
 import * as reducer from './remidies.reducer';
-import { OrderStatus, DiscountType, BulkTierType, CouponProductScope } from '../generated/prisma/client';
+import { OrderStatus, DiscountType, BulkTierType, CouponProductScope, PaymentProvider } from '../generated/prisma/client';
 import { config } from '../core/config';
 import { StockService } from '../stock/stock.service';
 import { WhatsAppService } from '../notification/whatsapp.service';
@@ -29,11 +29,23 @@ export const getAllCategories = async () => {
 
 // --- PRODUCT INTENT ---
 
+const round2 = (n: number) => Math.round(n * 100) / 100;
+
+const marginPercent = (profit: number, cost: number): number | null =>
+  cost > 0 ? round2((profit / cost) * 100) : null;
+
+const formatAdminProduct = <T extends { price: unknown; purchasePrice?: unknown | null }>(product: T) => {
+  const price = Number(product.price);
+  const purchasePrice = product.purchasePrice != null ? Number(product.purchasePrice) : null;
+  return { ...product, price, rate: price, purchasePrice };
+};
+
 export const createProduct = async (data: {
   name: string;
   description?: string;
   images?: string[];
   price: number;
+  purchasePrice?: number | null;
   stock: number;
   isActive?: boolean;
   categoryId: string;
@@ -48,7 +60,7 @@ export const createProduct = async (data: {
     await StockService.checkAndQueueLowStockAlert(product.id, 0, data.stock, product.name);
   }
 
-  return product;
+  return formatAdminProduct(product);
 };
 
 export const updateProduct = async (
@@ -59,6 +71,7 @@ export const updateProduct = async (
     images?: string[];
     imagesToKeep?: string[];
     price?: number;
+    purchasePrice?: number | null;
     stock?: number;
     isActive?: boolean;
     categoryId?: string;
@@ -73,7 +86,8 @@ export const updateProduct = async (
     if (!category) throw new Error('Category not found');
   }
 
-  return reducer.updateProduct(id, data);
+  const product = await reducer.updateProduct(id, data);
+  return formatAdminProduct(product);
 };
 
 export const deleteProduct = async (id: string) => {
@@ -85,8 +99,7 @@ export const deleteProduct = async (id: string) => {
 export const getProductById = async (id: string) => {
   const product = await reducer.getProductById(id);
   if (!product) return null;
-  const price = Number(product.price);
-  return { ...product, price, rate: price };
+  return formatAdminProduct(product);
 };
 
 export const getProductBySlug = async (slug: string) => {
@@ -98,10 +111,7 @@ export const getProductBySlug = async (slug: string) => {
 
 export const getAllProducts = async (params: { categoryId?: string; isActive?: boolean }) => {
   const products = await reducer.getAllProducts(params);
-  return products.map(p => {
-    const price = Number(p.price);
-    return { ...p, price, rate: price };
-  });
+  return products.map(formatAdminProduct);
 };
 
 export const getProducts = async (params: { page: number; limit: number; categoryId?: string; isActive?: boolean }) => {
@@ -111,10 +121,7 @@ export const getProducts = async (params: { page: number; limit: number; categor
   const result = await reducer.getProducts({ skip, take, categoryId: params.categoryId, isActive: params.isActive });
 
   return {
-    data: result.products.map(p => {
-      const price = Number(p.price);
-      return { ...p, price, rate: price };
-    }),
+    data: result.products.map(formatAdminProduct),
     meta: {
       total: result.total,
       page: params.page,
@@ -804,5 +811,141 @@ export const getDashboardStats = async (params: { startDate?: Date; endDate?: Da
     totalPurchaseCost,
     totalProfit: totalSales - totalPurchaseCost - totalShipping,
     orderCount:  orders.length,
+  };
+};
+
+// --- INVENTORY SUMMARY ---
+
+type SoldProductMetrics = {
+  quantitySold: number;
+  revenue: number;
+  purchaseCost: number;
+  websiteQuantity: number;
+  cashSaleQuantity: number;
+};
+
+const emptySoldMetrics = (): SoldProductMetrics => ({
+  quantitySold:     0,
+  revenue:          0,
+  purchaseCost:     0,
+  websiteQuantity:  0,
+  cashSaleQuantity: 0,
+});
+
+export const getInventorySummary = async (params: { startDate?: Date; endDate?: Date }) => {
+  const [products, soldItems, orders] = await Promise.all([
+    reducer.getAllProducts({}),
+    reducer.getSoldItemsForInventory(params),
+    reducer.getOrdersForStats(params),
+  ]);
+
+  const soldByProduct = new Map<string, SoldProductMetrics>();
+
+  for (const item of soldItems) {
+    const existing = soldByProduct.get(item.productId) ?? emptySoldMetrics();
+    const lineRevenue = Number(item.price) * item.quantity;
+    const lineCost = Number(item.product.purchasePrice ?? 0) * item.quantity;
+    const provider = item.order.payment?.provider;
+
+    existing.quantitySold += item.quantity;
+    existing.revenue += lineRevenue;
+    existing.purchaseCost += lineCost;
+    if (provider === PaymentProvider.CASH) {
+      existing.cashSaleQuantity += item.quantity;
+    } else {
+      existing.websiteQuantity += item.quantity;
+    }
+    soldByProduct.set(item.productId, existing);
+  }
+
+  let totalUnits = 0;
+  let totalPurchaseValue = 0;
+  let totalSellingValue = 0;
+  let totalUnitsSold = 0;
+
+  const productRows = products.map((product) => {
+    const stock = product.stock;
+    const purchasePrice = product.purchasePrice != null ? Number(product.purchasePrice) : null;
+    const sellingPrice = Number(product.price);
+    const purchaseValue = round2(stock * (purchasePrice ?? 0));
+    const sellingValue = round2(stock * sellingPrice);
+    const potentialProfit = round2(sellingValue - purchaseValue);
+
+    totalUnits += stock;
+    totalPurchaseValue += purchaseValue;
+    totalSellingValue += sellingValue;
+
+    const sold = soldByProduct.get(product.id) ?? emptySoldMetrics();
+    const soldProfit = round2(sold.revenue - sold.purchaseCost);
+    totalUnitsSold += sold.quantitySold;
+
+    return {
+      id: product.id,
+      name: product.name,
+      category: product.category,
+      stock,
+      purchasePrice,
+      sellingPrice,
+      onHand: {
+        purchaseValue,
+        sellingValue,
+        potentialProfit,
+        profitMarginPercent: marginPercent(potentialProfit, purchaseValue),
+      },
+      sold: {
+        quantitySold: sold.quantitySold,
+        revenue: round2(sold.revenue),
+        purchaseCost: round2(sold.purchaseCost),
+        profit: soldProfit,
+        profitMarginPercent: marginPercent(soldProfit, sold.purchaseCost),
+        websiteQuantity: sold.websiteQuantity,
+        cashSaleQuantity: sold.cashSaleQuantity,
+      },
+    };
+  });
+
+  let totalRevenue = 0;
+  let totalPurchaseCost = 0;
+  let totalShipping = 0;
+  let websiteOrderCount = 0;
+  let cashSaleOrderCount = 0;
+
+  for (const order of orders) {
+    totalRevenue += Number(order.totalAmount);
+    totalShipping += Number(order.shippingCost ?? 0);
+    for (const item of order.items) {
+      totalPurchaseCost += Number(item.product.purchasePrice ?? 0) * item.quantity;
+    }
+    if (order.payment?.provider === PaymentProvider.CASH) {
+      cashSaleOrderCount++;
+    } else {
+      websiteOrderCount++;
+    }
+  }
+
+  const totalProfit = round2(totalRevenue - totalPurchaseCost - totalShipping);
+  const potentialProfit = round2(totalSellingValue - totalPurchaseValue);
+
+  return {
+    summary: {
+      onHand: {
+        totalUnits,
+        totalPurchaseValue: round2(totalPurchaseValue),
+        totalSellingValue: round2(totalSellingValue),
+        potentialProfit,
+        profitMarginPercent: marginPercent(potentialProfit, totalPurchaseValue),
+      },
+      sold: {
+        totalUnitsSold,
+        totalRevenue: round2(totalRevenue),
+        totalPurchaseCost: round2(totalPurchaseCost),
+        totalShipping: round2(totalShipping),
+        totalProfit,
+        profitMarginPercent: marginPercent(totalProfit, totalPurchaseCost),
+        websiteOrderCount,
+        cashSaleOrderCount,
+      },
+    },
+    products: productRows,
   };
 };
