@@ -508,18 +508,28 @@ export const deleteBulkTier = async (id: string) => {
 // --- QUICK CASH SALE (POS) ---
 
 export const createQuickSale = async (params: {
-  productId:    string;
-  quantity:     number;
+  items:        { productId: string; quantity: number }[];
   shippingCost: number;
   adminUserId:  string;
 }) => {
   return prisma.$transaction(async (tx) => {
-    const product = await tx.product.findUnique({ where: { id: params.productId } });
-    if (!product) throw new Error('Product not found');
-    if (product.stock < params.quantity)
-      throw new Error(`Insufficient stock (${product.stock} available)`);
+    const lineItems: { productId: string; quantity: number; price: number; name: string }[] = [];
 
-    const subtotal    = Number(product.price) * params.quantity;
+    for (const item of params.items) {
+      const product = await tx.product.findUnique({ where: { id: item.productId } });
+      if (!product) throw new Error(`Product not found: ${item.productId}`);
+      if (product.stock < item.quantity)
+        throw new Error(`Insufficient stock for ${product.name} (${product.stock} available)`);
+
+      lineItems.push({
+        productId: item.productId,
+        quantity:  item.quantity,
+        price:     Number(product.price),
+        name:      product.name,
+      });
+    }
+
+    const subtotal    = lineItems.reduce((sum, item) => sum + item.price * item.quantity, 0);
     const totalAmount = subtotal + params.shippingCost;
 
     const order = await tx.order.create({
@@ -536,7 +546,11 @@ export const createQuickSale = async (params: {
         shippingState:   'N/A',
         shippingPostal:  '000000',
         items: {
-          create: { productId: params.productId, quantity: params.quantity, price: product.price },
+          create: lineItems.map((item) => ({
+            productId: item.productId,
+            quantity:  item.quantity,
+            price:     item.price,
+          })),
         },
       },
     });
@@ -552,16 +566,40 @@ export const createQuickSale = async (params: {
       },
     });
 
-    const { previousStock, newStock } = await StockService.recordStockChange(tx, {
-      productId:      params.productId,
-      quantityChange: -params.quantity,
-      type:           StockMovementType.ORDER,
-      reason:         'Quick cash sale (POS)',
-      referenceId:    order.id,
-      createdBy:      params.adminUserId,
+    const stockChanges: {
+      productId:     string;
+      previousStock: number;
+      newStock:      number;
+      productName:   string;
+    }[] = [];
+
+    for (const item of lineItems) {
+      const change = await StockService.recordStockChange(tx, {
+        productId:      item.productId,
+        quantityChange: -item.quantity,
+        type:           StockMovementType.ORDER,
+        reason:         'Quick cash sale (POS)',
+        referenceId:    order.id,
+        createdBy:      params.adminUserId,
+      });
+      stockChanges.push({
+        productId:     item.productId,
+        previousStock: change.previousStock,
+        newStock:      change.newStock,
+        productName:   item.name,
+      });
+    }
+
+    // Re-fetch so payment relation is populated after create
+    const orderWithPayment = await tx.order.findUniqueOrThrow({
+      where:   { id: order.id },
+      include: {
+        items:   { include: { product: true } },
+        payment: true,
+      },
     });
 
-    return { order, product, previousStock, newStock };
+    return { order: orderWithPayment, stockChanges };
   });
 };
 

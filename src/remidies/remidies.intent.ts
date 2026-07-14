@@ -757,19 +757,20 @@ export const deleteBulkTier = async (id: string) => {
 // --- QUICK CASH SALE (POS) ---
 
 export const createQuickSale = async (params: {
-  productId:    string;
-  quantity:     number;
+  items:        { productId: string; quantity: number }[];
   shippingCost: number;
   adminUserId:  string;
 }) => {
   const result = await reducer.createQuickSale(params);
 
-  await StockService.checkAndQueueLowStockAlert(
-    result.product.id,
-    result.previousStock,
-    result.newStock,
-    result.product.name,
-  );
+  for (const change of result.stockChanges) {
+    await StockService.checkAndQueueLowStockAlert(
+      change.productId,
+      change.previousStock,
+      change.newStock,
+      change.productName,
+    );
+  }
 
   if (config.whatsapp.adminPhone) {
     await WhatsAppService.queueNotification({
@@ -778,7 +779,7 @@ export const createQuickSale = async (params: {
       message: WhatsAppMessages.newOrder({
         orderId:      result.order.id,
         totalAmount:  Number(result.order.totalAmount),
-        itemCount:    1,
+        itemCount:    params.items.length,
         shippingName: 'Walk-in Customer (POS)',
         shippingCity: 'POS',
       }),

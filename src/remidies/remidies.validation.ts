@@ -266,12 +266,44 @@ export const updateStockSettingsSchema = z.object({
   }),
 });
 
+const quickSaleItemSchema = z.object({
+  productId: z.string().uuid('Invalid product ID'),
+  quantity:  z.coerce.number().int().positive('Quantity must be at least 1'),
+});
+
+const mergeQuickSaleItems = (
+  items: { productId: string; quantity: number }[],
+): { productId: string; quantity: number }[] => {
+  const byProduct = new Map<string, number>();
+  for (const item of items) {
+    byProduct.set(item.productId, (byProduct.get(item.productId) ?? 0) + item.quantity);
+  }
+  return Array.from(byProduct.entries()).map(([productId, quantity]) => ({ productId, quantity }));
+};
+
 export const quickSaleSchema = z.object({
-  body: z.object({
-    productId:    z.string().uuid('Invalid product ID'),
-    quantity:     z.coerce.number().int().positive('Quantity must be at least 1').default(1),
-    shippingCost: z.coerce.number().nonnegative('Shipping cost cannot be negative').default(0),
-  }),
+  body: z
+    .union([
+      z.object({
+        items:        z.array(quickSaleItemSchema).min(1, 'At least one item is required'),
+        shippingCost: z.coerce.number().nonnegative('Shipping cost cannot be negative').default(0),
+      }),
+      z.object({
+        productId:    z.string().uuid('Invalid product ID'),
+        quantity:     z.coerce.number().int().positive('Quantity must be at least 1').default(1),
+        shippingCost: z.coerce.number().nonnegative('Shipping cost cannot be negative').default(0),
+      }),
+    ])
+    .transform((body) => {
+      const items =
+        'items' in body
+          ? body.items
+          : [{ productId: body.productId, quantity: body.quantity }];
+      return {
+        items: mergeQuickSaleItems(items),
+        shippingCost: body.shippingCost,
+      };
+    }),
 });
 
 export const dashboardStatsSchema = z.object({
