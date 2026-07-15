@@ -511,6 +511,11 @@ export const createQuickSale = async (params: {
   items:        { productId: string; quantity: number }[];
   shippingCost: number;
   adminUserId:  string;
+  customerName?: string;
+  customerPhone?: string;
+  customerAddress?: string;
+  customerCity?: string;
+  customerState?: string;
 }) => {
   return prisma.$transaction(async (tx) => {
     const lineItems: { productId: string; quantity: number; price: number; name: string }[] = [];
@@ -539,11 +544,11 @@ export const createQuickSale = async (params: {
         shippingCost:    params.shippingCost,
         totalAmount,
         status:          OrderStatus.PAID,
-        shippingName:    'Walk-in Customer',
-        shippingPhone:   '0000000000',
-        shippingAddress: 'POS Sale',
-        shippingCity:    'N/A',
-        shippingState:   'N/A',
+        shippingName:    params.customerName?.trim() || 'Walk-in Customer',
+        shippingPhone:   params.customerPhone?.trim() || '0000000000',
+        shippingAddress: params.customerAddress?.trim() || 'POS Sale',
+        shippingCity:    params.customerCity?.trim() || 'N/A',
+        shippingState:   params.customerState?.trim() || 'N/A',
         shippingPostal:  '000000',
         items: {
           create: lineItems.map((item) => ({

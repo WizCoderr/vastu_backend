@@ -281,17 +281,27 @@ const mergeQuickSaleItems = (
   return Array.from(byProduct.entries()).map(([productId, quantity]) => ({ productId, quantity }));
 };
 
+const quickSaleCustomerFields = {
+  customerName:    z.string().trim().min(1, 'Customer name is required'),
+  customerPhone:   z.string().trim().min(7, 'Phone number must be at least 7 digits'),
+  customerAddress: z.string().trim().min(1, 'Customer address is required'),
+  customerCity:    z.string().trim().min(1).optional(),
+  customerState:   z.string().trim().min(1).optional(),
+};
+
 export const quickSaleSchema = z.object({
   body: z
     .union([
       z.object({
         items:        z.array(quickSaleItemSchema).min(1, 'At least one item is required'),
         shippingCost: z.coerce.number().nonnegative('Shipping cost cannot be negative').default(0),
+        ...quickSaleCustomerFields,
       }),
       z.object({
         productId:    z.string().uuid('Invalid product ID'),
         quantity:     z.coerce.number().int().positive('Quantity must be at least 1').default(1),
         shippingCost: z.coerce.number().nonnegative('Shipping cost cannot be negative').default(0),
+        ...quickSaleCustomerFields,
       }),
     ])
     .transform((body) => {
@@ -302,6 +312,11 @@ export const quickSaleSchema = z.object({
       return {
         items: mergeQuickSaleItems(items),
         shippingCost: body.shippingCost,
+        customerName: body.customerName,
+        customerPhone: body.customerPhone,
+        customerAddress: body.customerAddress,
+        customerCity: body.customerCity,
+        customerState: body.customerState,
       };
     }),
 });

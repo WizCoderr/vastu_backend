@@ -760,6 +760,11 @@ export const createQuickSale = async (params: {
   items:        { productId: string; quantity: number }[];
   shippingCost: number;
   adminUserId:  string;
+  customerName?: string;
+  customerPhone?: string;
+  customerAddress?: string;
+  customerCity?: string;
+  customerState?: string;
 }) => {
   const result = await reducer.createQuickSale(params);
 
@@ -773,6 +778,11 @@ export const createQuickSale = async (params: {
   }
 
   if (config.whatsapp.adminPhone) {
+    const shippingName = result.order.shippingName || 'Walk-in Customer (POS)';
+    const shippingCity =
+      result.order.shippingCity && result.order.shippingCity !== 'N/A'
+        ? result.order.shippingCity
+        : 'POS';
     await WhatsAppService.queueNotification({
       type:           'NEW_ORDER',
       recipientPhone: config.whatsapp.adminPhone,
@@ -780,8 +790,8 @@ export const createQuickSale = async (params: {
         orderId:      result.order.id,
         totalAmount:  Number(result.order.totalAmount),
         itemCount:    params.items.length,
-        shippingName: 'Walk-in Customer (POS)',
-        shippingCity: 'POS',
+        shippingName,
+        shippingCity,
       }),
       referenceId: result.order.id,
     });

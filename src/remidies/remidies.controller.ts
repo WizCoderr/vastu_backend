@@ -594,11 +594,24 @@ export const deleteBulkTier: RequestHandler = async (req, res, next) => {
 
 export const createQuickSale: RequestHandler = async (req: AuthRequest, res, next) => {
   try {
-    const { items, shippingCost } = quickSaleSchema.parse(req).body;
+    const {
+      items,
+      shippingCost,
+      customerName,
+      customerPhone,
+      customerAddress,
+      customerCity,
+      customerState,
+    } = quickSaleSchema.parse(req).body;
     const order = await intent.createQuickSale({
       items,
       shippingCost,
       adminUserId: req.user!.userId,
+      customerName,
+      customerPhone,
+      customerAddress,
+      customerCity,
+      customerState,
     });
     res.status(201).json({ success: true, data: order });
   } catch (error) { next(error); }
