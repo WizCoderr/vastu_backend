@@ -141,22 +141,74 @@ export class InstructorIntent {
         const { courseId } = req.params;
         logger.info('InstructorIntent.getCourseStudents: Fetching students', { courseId });
         try {
-            const enrollments = await prisma.enrollment.findMany({
-                where: { courseId },
-                include: { user: true },
-                orderBy: { createdAt: 'desc' }
-            });
+            const [enrollments, course, payments] = await Promise.all([
+                prisma.enrollment.findMany({
+                    where: { courseId },
+                    include: { user: true },
+                    orderBy: { createdAt: 'desc' },
+                }),
+                prisma.course.findUnique({
+                    where: { id: courseId },
+                    include: {
+                        paymentPlans: { orderBy: { orderIndex: 'asc' } },
+                    },
+                }),
+                prisma.studentPayment.findMany({
+                    where: { courseId },
+                    select: {
+                        userId: true,
+                        status: true,
+                        stageName: true,
+                        planId: true,
+                    },
+                }),
+            ]);
 
-            const students = enrollments.map(e => ({
-                id: e.user.id,
-                name: e.user.name,
-                email: e.user.email,
-                phoneNumber: e.user.phoneNumber,
-                enrolledAt: e.createdAt,
-                expiresAt: e.expiresAt,
-                status: e.status,
-                serialNumber: e.serialNumber
-            }));
+            const paymentsByUser = new Map<string, typeof payments>();
+            for (const payment of payments) {
+                const list = paymentsByUser.get(payment.userId) ?? [];
+                list.push(payment);
+                paymentsByUser.set(payment.userId, list);
+            }
+
+            const planIds = course?.paymentPlans.map((p) => p.id) ?? [];
+
+            const students = enrollments.map((e) => {
+                const userPayments = paymentsByUser.get(e.user.id) ?? [];
+                const isFullyPaid = (() => {
+                    if (userPayments.length === 0) return false;
+                    if (planIds.length > 0) {
+                        return planIds.every((planId) =>
+                            userPayments.some((p) => p.planId === planId && p.status === 'PAID'),
+                        );
+                    }
+                    return userPayments.some(
+                        (p) => p.status === 'PAID' && (p.stageName === 'Full Payment' || !p.planId),
+                    );
+                })();
+
+                const paymentStatus = (() => {
+                    if (userPayments.length === 0) return 'NONE' as const;
+                    if (isFullyPaid) return 'PAID' as const;
+                    if (userPayments.some((p) => p.status === 'OVERDUE')) return 'OVERDUE' as const;
+                    if (userPayments.some((p) => p.status === 'PENDING')) return 'PENDING' as const;
+                    if (userPayments.some((p) => p.status === 'PAID')) return 'PAID' as const;
+                    return 'NONE' as const;
+                })();
+
+                return {
+                    id: e.user.id,
+                    name: e.user.name,
+                    email: e.user.email,
+                    phoneNumber: e.user.phoneNumber,
+                    enrolledAt: e.createdAt,
+                    expiresAt: e.expiresAt,
+                    status: e.status,
+                    serialNumber: e.serialNumber,
+                    paymentStatus,
+                    isFullyPaid,
+                };
+            });
             const count = students.length;
             res.json({ success: true, data: { students, count } });
         } catch (error) {

@@ -4,9 +4,11 @@ import { EnrollmentRepository } from '../enrollment/enrollment.repository';
 import { prisma } from '../core/prisma';
 import logger from '../utils/logger';
 
+type EnrollOutcome = 'ENROLLED' | 'ALREADY_ENROLLED' | 'NOT_FOUND' | 'ERROR';
+
 export class AdminIntent {
     static async enrollStudent(req: Request, res: Response) {
-        logger.info('AdminIntent.enrollStudent: Attempting to enroll student');
+        logger.info('AdminIntent.enrollStudent: Attempting to enroll student(s)');
         const validation = adminEnrollSchema.safeParse(req.body);
 
         if (!validation.success) {
@@ -15,30 +17,100 @@ export class AdminIntent {
             return;
         }
 
-        const { userId, courseId } = validation.data;
+        const { courseId, userIds, markFullPayment } = validation.data;
 
         try {
-            // Check if user exists
-            const user = await prisma.user.findUnique({ where: { id: userId } });
-            if (!user) {
-                logger.warn('AdminIntent.enrollStudent: User not found', { userId });
-                res.status(404).json({ error: 'User not found' });
-                return;
-            }
-
-            // Check if course exists
-            const course = await prisma.course.findUnique({ where: { id: courseId } });
+            const course = await prisma.course.findUnique({
+                where: { id: courseId },
+                include: {
+                    paymentPlans: { orderBy: { orderIndex: 'asc' } },
+                },
+            });
             if (!course) {
                 logger.warn('AdminIntent.enrollStudent: Course not found', { courseId });
                 res.status(404).json({ error: 'Course not found' });
                 return;
             }
 
-            // Create enrollment
-            const enrollment = await EnrollmentRepository.createEnrollment(userId, courseId);
+            const results: {
+                userId: string;
+                outcome: EnrollOutcome;
+                serialNumber?: string | null;
+                error?: string;
+            }[] = [];
 
-            logger.info('AdminIntent.enrollStudent: Student enrolled successfully', { userId, courseId });
-            res.status(200).json({ success: true, enrollment });
+            for (const userId of userIds) {
+                try {
+                    const user = await prisma.user.findUnique({ where: { id: userId } });
+                    if (!user || user.role !== 'student') {
+                        results.push({ userId, outcome: 'NOT_FOUND' });
+                        continue;
+                    }
+
+                    const hadEnrollment = !!(await EnrollmentRepository.findEnrollment(userId, courseId));
+                    const enrollment = await EnrollmentRepository.createEnrollment(userId, courseId);
+
+                    if (markFullPayment) {
+                        await EnrollmentRepository.markFullPayment(userId, courseId, course);
+                    }
+
+                    results.push({
+                        userId,
+                        outcome: hadEnrollment ? 'ALREADY_ENROLLED' : 'ENROLLED',
+                        serialNumber: enrollment.serialNumber,
+                    });
+                } catch (err: any) {
+                    results.push({
+                        userId,
+                        outcome: 'ERROR',
+                        error: err?.message ?? 'Failed to enroll user',
+                    });
+                }
+            }
+
+            const enrolled = results.filter((r) => r.outcome === 'ENROLLED').length;
+            const alreadyEnrolled = results.filter((r) => r.outcome === 'ALREADY_ENROLLED').length;
+            const notFound = results.filter((r) => r.outcome === 'NOT_FOUND').length;
+            const errors = results.filter((r) => r.outcome === 'ERROR').length;
+
+            logger.info('AdminIntent.enrollStudent: Enroll completed', {
+                courseId,
+                markFullPayment,
+                enrolled,
+                alreadyEnrolled,
+                notFound,
+                errors,
+            });
+
+            // Backward-compatible single-user response includes `enrollment` when successful
+            if (userIds.length === 1) {
+                const single = results[0];
+                const enrollment =
+                    single?.outcome === 'ENROLLED' || single?.outcome === 'ALREADY_ENROLLED'
+                        ? await EnrollmentRepository.findEnrollment(userIds[0], courseId)
+                        : null;
+                res.status(200).json({
+                    success: true,
+                    enrollment,
+                    markFullPayment,
+                    enrolled,
+                    alreadyEnrolled,
+                    notFound,
+                    errors,
+                    results,
+                });
+                return;
+            }
+
+            res.status(200).json({
+                success: true,
+                markFullPayment,
+                enrolled,
+                alreadyEnrolled,
+                notFound,
+                errors,
+                results,
+            });
         } catch (error: any) {
             logger.error('AdminIntent.enrollStudent: Internal error', { error });
             res.status(500).json({ error: 'Failed to enroll user' });
@@ -48,8 +120,22 @@ export class AdminIntent {
     static async getAllStudents(req: Request, res: Response) {
         logger.info('AdminIntent.getAllStudents: Listing all students');
         try {
+            const excludeCourseId =
+                typeof req.query.excludeCourseId === 'string' && req.query.excludeCourseId.trim()
+                    ? req.query.excludeCourseId.trim()
+                    : undefined;
+
             const students = await prisma.user.findMany({
-                where: { role: 'student' },
+                where: {
+                    role: 'student',
+                    ...(excludeCourseId
+                        ? {
+                              enrollments: {
+                                  none: { courseId: excludeCourseId },
+                              },
+                          }
+                        : {}),
+                },
                 select: {
                     id: true,
                     email: true,

@@ -1,4 +1,7 @@
 import { prisma } from "../core/prisma";
+import type { Course, CoursePaymentPlan } from "../generated/prisma/client";
+
+type CourseWithPaymentPlans = Course & { paymentPlans: CoursePaymentPlan[] };
 
 export class EnrollmentRepository {
     static async findEnrollment(userId: string, courseId: string) {
@@ -58,5 +61,93 @@ export class EnrollmentRepository {
         });
 
         return enrollment;
+    }
+
+    /**
+     * Mark a student's course payments as fully PAID (manual/admin offline payment).
+     * If the course has installment plans, each stage is upserted to PAID;
+     * otherwise a single "Full Payment" row is upserted.
+     */
+    static async markFullPayment(
+        userId: string,
+        courseId: string,
+        course?: CourseWithPaymentPlans,
+    ) {
+        const courseData =
+            course ??
+            (await prisma.course.findUnique({
+                where: { id: courseId },
+                include: {
+                    paymentPlans: { orderBy: { orderIndex: "asc" } },
+                },
+            }));
+
+        if (!courseData) {
+            throw new Error(`Course not found: ${courseId}`);
+        }
+
+        const now = new Date();
+        const plans = courseData.paymentPlans;
+
+        if (plans.length > 0) {
+            for (const plan of plans) {
+                const existing = await prisma.studentPayment.findFirst({
+                    where: { userId, courseId, planId: plan.id },
+                });
+
+                if (existing) {
+                    if (existing.status !== "PAID") {
+                        await prisma.studentPayment.update({
+                            where: { id: existing.id },
+                            data: { status: "PAID", paidAt: now },
+                        });
+                    }
+                } else {
+                    await prisma.studentPayment.create({
+                        data: {
+                            userId,
+                            courseId,
+                            planId: plan.id,
+                            stageName: plan.stageName,
+                            amount: plan.amount,
+                            status: "PAID",
+                            paidAt: now,
+                            dueDate: now,
+                        },
+                    });
+                }
+            }
+        } else {
+            const existing = await prisma.studentPayment.findFirst({
+                where: { userId, courseId },
+            });
+
+            if (existing) {
+                if (existing.status !== "PAID") {
+                    await prisma.studentPayment.update({
+                        where: { id: existing.id },
+                        data: { status: "PAID", paidAt: now },
+                    });
+                }
+            } else {
+                await prisma.studentPayment.create({
+                    data: {
+                        userId,
+                        courseId,
+                        planId: null,
+                        stageName: "Full Payment",
+                        amount: courseData.price,
+                        status: "PAID",
+                        paidAt: now,
+                        dueDate: now,
+                    },
+                });
+            }
+        }
+
+        await prisma.enrollment.updateMany({
+            where: { userId, courseId, status: { not: "ACTIVE" } },
+            data: { status: "ACTIVE" },
+        });
     }
 }

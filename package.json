@@ -7,6 +7,7 @@
     "dev": "bun run --watch src/index.ts",
     "migrate_mongo": "bun run scripts/migrate_mongo.ts",
     "migrate_s3": "bun run scripts/migrate_s3_to_cloudinary.ts",
+    "bulk_enroll": "bun run scripts/bulk_enroll_course.ts",
     "build": "bun build ./src/index.ts --outdir ./dist --target node",
     "start": "bun run src/index.ts"
   },
