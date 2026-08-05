@@ -27,6 +27,8 @@ import {
   stockHistoryQuerySchema,
   updateStockSettingsSchema,
   quickSaleSchema,
+  updateCashSaleSchema,
+  deleteCashSaleSchema,
   dashboardStatsSchema,
   inventorySummarySchema,
 } from './remidies.validation';
@@ -614,6 +616,41 @@ export const createQuickSale: RequestHandler = async (req: AuthRequest, res, nex
       customerState,
     });
     res.status(201).json({ success: true, data: order });
+  } catch (error) { next(error); }
+};
+
+export const updateCashSale: RequestHandler = async (req: AuthRequest, res, next) => {
+  try {
+    const { id } = updateCashSaleSchema.parse(req).params;
+    const {
+      items,
+      shippingCost,
+      customerName,
+      customerPhone,
+      customerAddress,
+      customerCity,
+      customerState,
+    } = updateCashSaleSchema.parse(req).body;
+    const order = await intent.updateCashSale({
+      orderId: id,
+      items,
+      shippingCost,
+      adminUserId: req.user!.userId,
+      customerName,
+      customerPhone,
+      customerAddress,
+      customerCity,
+      customerState,
+    });
+    res.status(200).json({ success: true, data: order });
+  } catch (error) { next(error); }
+};
+
+export const deleteCashSale: RequestHandler = async (req: AuthRequest, res, next) => {
+  try {
+    const { id } = deleteCashSaleSchema.parse(req).params;
+    await intent.deleteCashSale(id, req.user!.userId);
+    res.status(200).json({ success: true, message: 'Cash bill deleted and stock restored' });
   } catch (error) { next(error); }
 };
 

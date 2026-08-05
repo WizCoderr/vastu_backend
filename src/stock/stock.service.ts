@@ -212,10 +212,11 @@ export class StockService {
   static async restoreOrderStock(
     orderId: string,
     items: { productId: string; quantity: number }[],
-    adminUserId?: string
+    adminUserId?: string,
+    reason: string = 'Order cancelled'
   ): Promise<void> {
     const existingRestore = await prisma.stockMovement.findFirst({
-      where: { referenceId: orderId, type: StockMovementType.RESTOCK, reason: 'Order cancelled' },
+      where: { referenceId: orderId, type: StockMovementType.RESTOCK, reason },
     });
     if (existingRestore) {
       return;
@@ -227,7 +228,7 @@ export class StockService {
           productId: item.productId,
           quantityChange: item.quantity,
           type: StockMovementType.RESTOCK,
-          reason: 'Order cancelled',
+          reason,
           referenceId: orderId,
           createdBy: adminUserId,
         })

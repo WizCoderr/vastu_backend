@@ -251,7 +251,7 @@ const applyBulkDiscount = async (
   return { bulkDiscount: bestDiscountAmount, appliedTierId: bestTierId };
 };
 
-type CouponCartLine = { productId: string; lineTotal: number };
+type CouponCartLine = { productId: string; categoryId: string; lineTotal: number };
 
 type CouponCartContext = {
   subtotalAmount: number;
@@ -262,11 +262,23 @@ type CouponCartContext = {
 type CouponWithProducts = NonNullable<Awaited<ReturnType<typeof reducer.getCouponByCode>>>;
 
 type CouponProductLink = CouponWithProducts['products'][number];
+type CouponCategoryLink = CouponWithProducts['categories'][number];
 
-const formatCouponResponse = <T extends { discountValue: unknown; products: CouponProductLink[] }>(coupon: T) => ({
+const formatCouponResponse = <
+  T extends {
+    discountValue: unknown;
+    products: CouponProductLink[];
+    categories?: CouponCategoryLink[];
+  }
+>(coupon: T) => ({
   ...coupon,
   discountValue: Number(coupon.discountValue),
   products: coupon.products.map((entry) => entry.product),
+  categories: (coupon.categories ?? []).map((entry) => ({
+    categoryId: entry.categoryId,
+    discountValue: Number(entry.discountValue),
+    category: entry.category,
+  })),
 });
 
 const validateCouponProductIds = async (productIds: string[]) => {
@@ -278,10 +290,52 @@ const validateCouponProductIds = async (productIds: string[]) => {
   return uniqueIds;
 };
 
+const validateCouponCategoryRules = async (
+  rules: { categoryId: string; discountValue: number }[]
+) => {
+  const uniqueIds = [...new Set(rules.map((r) => r.categoryId))];
+  if (uniqueIds.length !== rules.length) {
+    throw new Error('Duplicate categories are not allowed');
+  }
+  const categories = await reducer.getCategoriesByIds(uniqueIds);
+  if (categories.length !== uniqueIds.length) {
+    throw new Error('One or more selected categories are invalid');
+  }
+  return rules;
+};
+
 const computeCouponDiscount = (
   coupon: NonNullable<CouponWithProducts>,
   context: CouponCartContext
 ): { discountAmount: number; eligibleSubtotal: number } => {
+  if (context.cartLines.length === 0 || context.subtotalAmount === 0) {
+    throw new Error('This coupon is not valid for items in your cart');
+  }
+
+  if (coupon.productScope === CouponProductScope.CATEGORY) {
+    const overrides = new Map(
+      (coupon.categories ?? []).map((entry) => [
+        entry.categoryId,
+        Number(entry.discountValue),
+      ])
+    );
+    const defaultRate = Number(coupon.discountValue);
+    let discountAmount = 0;
+    let eligibleSubtotal = 0;
+
+    for (const line of context.cartLines) {
+      const rate = overrides.get(line.categoryId) ?? defaultRate;
+      const lineShare =
+        context.subtotalAmount === 0
+          ? 0
+          : context.postBulkAmount * (line.lineTotal / context.subtotalAmount);
+      discountAmount += (lineShare * rate) / 100;
+      eligibleSubtotal += line.lineTotal;
+    }
+
+    return { discountAmount, eligibleSubtotal };
+  }
+
   let priceBase: number;
   let eligibleSubtotal = 0;
 
@@ -316,6 +370,22 @@ const computeCouponDiscount = (
   return { discountAmount, eligibleSubtotal };
 };
 
+const assertCouponEligibleForUser = (
+  coupon: NonNullable<CouponWithProducts>,
+  userId: string
+) => {
+  if (!coupon.isActive) throw new Error('This coupon has been deactivated');
+  if (coupon.assignedUserId && coupon.assignedUserId !== userId) {
+    throw new Error('This coupon is not valid for your account');
+  }
+  if (coupon.expiresAt && new Date() > coupon.expiresAt) {
+    throw new Error('This coupon has expired');
+  }
+  if (coupon.usedCount >= coupon.maxUses) {
+    throw new Error('This coupon has reached its maximum usage limit');
+  }
+};
+
 const validateCoupon = async (
   code: string,
   userId: string,
@@ -324,10 +394,7 @@ const validateCoupon = async (
   const coupon = await reducer.getCouponByCode(code.toUpperCase());
 
   if (!coupon) throw new Error('Coupon not found or invalid');
-  if (!coupon.isActive) throw new Error('This coupon has been deactivated');
-  if (coupon.assignedUserId !== userId) throw new Error('This coupon is not valid for your account');
-  if (new Date() > coupon.expiresAt) throw new Error('This coupon has expired');
-  if (coupon.usedCount >= coupon.maxUses) throw new Error('This coupon has reached its maximum usage limit');
+  assertCouponEligibleForUser(coupon, userId);
 
   const { discountAmount } = computeCouponDiscount(coupon, context);
 
@@ -376,7 +443,11 @@ export const checkoutCart = async (
       price: Number(product.price),
     });
 
-    cartLines.push({ productId: product.id, lineTotal });
+    cartLines.push({
+      productId: product.id,
+      categoryId: product.categoryId,
+      lineTotal,
+    });
     subtotalAmount += lineTotal;
     totalQuantity += item.quantity;
   }
@@ -564,19 +635,27 @@ export const createCoupon = async (data: {
   discountType: DiscountType;
   discountValue: number;
   maxUses: number;
-  expiresAt: string;
-  assignedUserId: string;
+  expiresAt?: string | null;
+  assignedUserId?: string | null;
   productScope?: CouponProductScope;
   productIds?: string[];
+  categoryRules?: { categoryId: string; discountValue: number }[];
+  isActive?: boolean;
 }) => {
   const existing = await reducer.getCouponByCode(data.code.toUpperCase());
   if (existing) throw new Error('A coupon with this code already exists');
 
   const productScope = data.productScope ?? CouponProductScope.ALL;
   let productIds: string[] | undefined;
+  let categoryRules: { categoryId: string; discountValue: number }[] | undefined;
 
   if (productScope === CouponProductScope.SPECIFIC) {
     productIds = await validateCouponProductIds(data.productIds!);
+  } else if (productScope === CouponProductScope.CATEGORY) {
+    if (data.discountType !== DiscountType.PERCENTAGE) {
+      throw new Error('CATEGORY coupons must use PERCENTAGE discount type');
+    }
+    categoryRules = await validateCouponCategoryRules(data.categoryRules!);
   }
 
   const coupon = await reducer.createCoupon({
@@ -584,10 +663,12 @@ export const createCoupon = async (data: {
     discountType: data.discountType,
     discountValue: data.discountValue,
     maxUses: data.maxUses,
-    expiresAt: new Date(data.expiresAt),
-    assignedUserId: data.assignedUserId,
+    expiresAt: data.expiresAt ? new Date(data.expiresAt) : null,
+    assignedUserId: data.assignedUserId ?? null,
     productScope,
     productIds,
+    categoryRules,
+    isActive: data.isActive,
   });
 
   return coupon ? formatCouponResponse(coupon) : null;
@@ -607,18 +688,23 @@ export const getCoupon = async (id: string) => {
 export const updateCoupon = async (id: string, data: {
   discountValue?: number;
   maxUses?: number;
-  expiresAt?: string;
+  expiresAt?: string | null;
   isActive?: boolean;
   productScope?: CouponProductScope;
   productIds?: string[];
+  categoryRules?: { categoryId: string; discountValue: number }[];
+  assignedUserId?: string | null;
 }) => {
   const existing = await reducer.getCouponById(id);
   if (!existing) throw new Error('Coupon not found');
 
   let productIds: string[] | undefined;
+  let categoryRules: { categoryId: string; discountValue: number }[] | undefined;
+  const nextScope = data.productScope ?? existing.productScope;
 
   if (data.productScope === CouponProductScope.ALL) {
     productIds = [];
+    categoryRules = [];
   } else if (data.productScope === CouponProductScope.SPECIFIC) {
     const resolvedProductIds =
       data.productIds ?? existing.products.map((entry) => entry.product.id);
@@ -628,21 +714,51 @@ export const updateCoupon = async (id: string, data: {
     }
 
     productIds = await validateCouponProductIds(resolvedProductIds);
-  } else if (data.productIds !== undefined) {
-    if (existing.productScope !== CouponProductScope.SPECIFIC) {
-      throw new Error('Cannot set productIds on an all-products coupon');
+    categoryRules = [];
+  } else if (data.productScope === CouponProductScope.CATEGORY) {
+    const resolvedRules =
+      data.categoryRules ??
+      (existing.categories ?? []).map((entry) => ({
+        categoryId: entry.categoryId,
+        discountValue: Number(entry.discountValue),
+      }));
+
+    if (resolvedRules.length === 0) {
+      throw new Error('At least one category rule is required for category coupons');
     }
 
+    categoryRules = await validateCouponCategoryRules(resolvedRules);
+    productIds = [];
+  } else if (data.productIds !== undefined) {
+    if (existing.productScope !== CouponProductScope.SPECIFIC) {
+      throw new Error('Cannot set productIds on a non-product-specific coupon');
+    }
     productIds = await validateCouponProductIds(data.productIds);
+  } else if (data.categoryRules !== undefined) {
+    if (existing.productScope !== CouponProductScope.CATEGORY) {
+      throw new Error('Cannot set categoryRules on a non-category coupon');
+    }
+    categoryRules = await validateCouponCategoryRules(data.categoryRules);
+  }
+
+  if (nextScope === CouponProductScope.CATEGORY && data.discountValue !== undefined) {
+    // discountValue is the default remaining-category rate; type stays PERCENTAGE
   }
 
   const coupon = await reducer.updateCoupon(id, {
     discountValue: data.discountValue,
     maxUses: data.maxUses,
-    expiresAt: data.expiresAt ? new Date(data.expiresAt) : undefined,
+    expiresAt:
+      data.expiresAt === undefined
+        ? undefined
+        : data.expiresAt
+          ? new Date(data.expiresAt)
+          : null,
     isActive: data.isActive,
     productScope: data.productScope,
     productIds,
+    categoryRules,
+    assignedUserId: data.assignedUserId,
   });
 
   return coupon ? formatCouponResponse(coupon) : null;
@@ -664,14 +780,20 @@ export const validateCouponForUser = async (couponCode: string, userId: string) 
   const coupon = await reducer.getCouponByCode(couponCode.toUpperCase());
 
   if (!coupon) throw new Error('Coupon not found or invalid');
-  if (!coupon.isActive) throw new Error('This coupon has been deactivated');
-  if (coupon.assignedUserId !== userId) throw new Error('This coupon is not valid for your account');
-  if (new Date() > coupon.expiresAt) throw new Error('This coupon has expired');
-  if (coupon.usedCount >= coupon.maxUses) throw new Error('This coupon has reached its maximum usage limit');
+  assertCouponEligibleForUser(coupon, userId);
 
   const applicableProducts =
     coupon.productScope === CouponProductScope.SPECIFIC
       ? coupon.products.map((entry) => entry.product)
+      : [];
+
+  const applicableCategories =
+    coupon.productScope === CouponProductScope.CATEGORY
+      ? (coupon.categories ?? []).map((entry) => ({
+          categoryId: entry.categoryId,
+          discountValue: Number(entry.discountValue),
+          category: entry.category,
+        }))
       : [];
 
   const response: {
@@ -679,9 +801,14 @@ export const validateCouponForUser = async (couponCode: string, userId: string) 
     discountType: DiscountType;
     discountValue: number;
     usesRemaining: number;
-    expiresAt: Date;
+    expiresAt: Date | null;
     productScope: CouponProductScope;
     applicableProducts: { id: string; name: string }[];
+    applicableCategories: {
+      categoryId: string;
+      discountValue: number;
+      category: { id: string; name: string };
+    }[];
     eligibleSubtotal?: number;
     discountAmount?: number;
   } = {
@@ -692,6 +819,7 @@ export const validateCouponForUser = async (couponCode: string, userId: string) 
     expiresAt: coupon.expiresAt,
     productScope: coupon.productScope,
     applicableProducts,
+    applicableCategories,
   };
 
   const cart = await reducer.getCartByUserId(userId);
@@ -701,7 +829,11 @@ export const validateCouponForUser = async (couponCode: string, userId: string) 
 
     for (const item of cart.items) {
       const lineTotal = Number(item.product.price) * item.quantity;
-      cartLines.push({ productId: item.product.id, lineTotal });
+      cartLines.push({
+        productId: item.product.id,
+        categoryId: item.product.categoryId,
+        lineTotal,
+      });
       subtotalAmount += lineTotal;
     }
 
@@ -798,6 +930,46 @@ export const createQuickSale = async (params: {
   }
 
   return result.order;
+};
+
+export const updateCashSale = async (params: {
+  orderId: string;
+  items: { productId: string; quantity: number; price: number }[];
+  shippingCost: number;
+  adminUserId: string;
+  customerName: string;
+  customerPhone: string;
+  customerAddress: string;
+  customerCity?: string;
+  customerState?: string;
+}) => {
+  const result = await reducer.updateCashSale(params);
+
+  for (const change of result.stockChanges) {
+    await StockService.checkAndQueueLowStockAlert(
+      change.productId,
+      change.previousStock,
+      change.newStock,
+      change.productName,
+    );
+  }
+
+  return result.order;
+};
+
+export const deleteCashSale = async (orderId: string, adminUserId: string) => {
+  const result = await reducer.deleteCashSale({ orderId, adminUserId });
+
+  for (const change of result.stockChanges) {
+    await StockService.checkAndQueueLowStockAlert(
+      change.productId,
+      change.previousStock,
+      change.newStock,
+      change.productName,
+    );
+  }
+
+  return { success: true };
 };
 
 // --- DASHBOARD STATS ---

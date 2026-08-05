@@ -60,6 +60,8 @@ remidiesAdminRouter.get('/orders', ctrl.getAllOrders as RequestHandler);
 remidiesAdminRouter.post('/orders/quick-sale', ctrl.createQuickSale as RequestHandler);
 remidiesAdminRouter.get('/orders/:id', ctrl.getOrder as RequestHandler);
 remidiesAdminRouter.put('/orders/:id/status', ctrl.updateOrderStatus as RequestHandler);
+remidiesAdminRouter.put('/orders/:id/cash-sale', ctrl.updateCashSale as RequestHandler);
+remidiesAdminRouter.delete('/orders/:id/cash-sale', ctrl.deleteCashSale as RequestHandler);
 
 // Stock management
 remidiesAdminRouter.get('/stock/low', ctrl.getLowStockProducts as RequestHandler);

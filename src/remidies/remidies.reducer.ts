@@ -359,6 +359,9 @@ const couponProductsInclude = {
   products: {
     include: { product: { select: { id: true, name: true } } },
   },
+  categories: {
+    include: { category: { select: { id: true, name: true } } },
+  },
 } as const;
 
 export const getActiveProductsByIds = async (productIds: string[]) => {
@@ -368,24 +371,53 @@ export const getActiveProductsByIds = async (productIds: string[]) => {
   });
 };
 
+export const getCategoriesByIds = async (categoryIds: string[]) => {
+  return prisma.category.findMany({
+    where: { id: { in: categoryIds } },
+    select: { id: true },
+  });
+};
+
+export type CouponCategoryRuleInput = {
+  categoryId: string;
+  discountValue: number;
+};
+
 export const createCoupon = async (data: {
   code: string;
   discountType: DiscountType;
   discountValue: number;
   maxUses: number;
-  expiresAt: Date;
-  assignedUserId: string;
+  expiresAt: Date | null;
+  assignedUserId: string | null;
   productScope: CouponProductScope;
+  isActive?: boolean;
   productIds?: string[];
+  categoryRules?: CouponCategoryRuleInput[];
 }) => {
-  const { productIds, ...couponData } = data;
+  const { productIds, categoryRules, isActive, ...couponData } = data;
 
   return prisma.$transaction(async (tx) => {
-    const coupon = await tx.coupon.create({ data: couponData });
+    const coupon = await tx.coupon.create({
+      data: {
+        ...couponData,
+        ...(isActive !== undefined ? { isActive } : {}),
+      },
+    });
 
     if (data.productScope === CouponProductScope.SPECIFIC && productIds?.length) {
       await tx.couponProduct.createMany({
         data: productIds.map((productId) => ({ couponId: coupon.id, productId })),
+      });
+    }
+
+    if (data.productScope === CouponProductScope.CATEGORY && categoryRules?.length) {
+      await tx.couponCategory.createMany({
+        data: categoryRules.map((rule) => ({
+          couponId: coupon.id,
+          categoryId: rule.categoryId,
+          discountValue: rule.discountValue,
+        })),
       });
     }
 
@@ -432,23 +464,61 @@ export const getAllCoupons = async (filters?: { assignedUserId?: string; isActiv
 export const updateCoupon = async (id: string, data: {
   discountValue?: number;
   maxUses?: number;
-  expiresAt?: Date;
+  expiresAt?: Date | null;
   isActive?: boolean;
   productScope?: CouponProductScope;
   productIds?: string[];
+  categoryRules?: CouponCategoryRuleInput[];
+  assignedUserId?: string | null;
 }) => {
-  const { productIds, ...couponData } = data;
+  const { productIds, categoryRules, ...couponData } = data;
 
   return prisma.$transaction(async (tx) => {
     await tx.coupon.update({ where: { id }, data: couponData });
 
     if (data.productScope === CouponProductScope.ALL) {
       await tx.couponProduct.deleteMany({ where: { couponId: id } });
+      await tx.couponCategory.deleteMany({ where: { couponId: id } });
+    } else if (data.productScope === CouponProductScope.SPECIFIC) {
+      await tx.couponCategory.deleteMany({ where: { couponId: id } });
+      if (productIds !== undefined) {
+        await tx.couponProduct.deleteMany({ where: { couponId: id } });
+        if (productIds.length > 0) {
+          await tx.couponProduct.createMany({
+            data: productIds.map((productId) => ({ couponId: id, productId })),
+          });
+        }
+      }
+    } else if (data.productScope === CouponProductScope.CATEGORY) {
+      await tx.couponProduct.deleteMany({ where: { couponId: id } });
+      if (categoryRules !== undefined) {
+        await tx.couponCategory.deleteMany({ where: { couponId: id } });
+        if (categoryRules.length > 0) {
+          await tx.couponCategory.createMany({
+            data: categoryRules.map((rule) => ({
+              couponId: id,
+              categoryId: rule.categoryId,
+              discountValue: rule.discountValue,
+            })),
+          });
+        }
+      }
     } else if (productIds !== undefined) {
       await tx.couponProduct.deleteMany({ where: { couponId: id } });
       if (productIds.length > 0) {
         await tx.couponProduct.createMany({
           data: productIds.map((productId) => ({ couponId: id, productId })),
+        });
+      }
+    } else if (categoryRules !== undefined) {
+      await tx.couponCategory.deleteMany({ where: { couponId: id } });
+      if (categoryRules.length > 0) {
+        await tx.couponCategory.createMany({
+          data: categoryRules.map((rule) => ({
+            couponId: id,
+            categoryId: rule.categoryId,
+            discountValue: rule.discountValue,
+          })),
         });
       }
     }
@@ -465,7 +535,10 @@ export const updateCoupon = async (id: string, data: {
 
 export const getUserCoupons = async (userId: string) => {
   return prisma.coupon.findMany({
-    where: { assignedUserId: userId, isActive: true },
+    where: {
+      isActive: true,
+      OR: [{ assignedUserId: userId }, { assignedUserId: null }],
+    },
     include: couponProductsInclude,
     orderBy: { createdAt: 'desc' },
   });
@@ -605,6 +678,216 @@ export const createQuickSale = async (params: {
     });
 
     return { order: orderWithPayment, stockChanges };
+  });
+};
+
+export const updateCashSale = async (params: {
+  orderId: string;
+  items: { productId: string; quantity: number; price: number }[];
+  shippingCost: number;
+  adminUserId: string;
+  customerName: string;
+  customerPhone: string;
+  customerAddress: string;
+  customerCity?: string;
+  customerState?: string;
+}) => {
+  return prisma.$transaction(async (tx) => {
+    const existing = await tx.order.findUnique({
+      where: { id: params.orderId },
+      include: {
+        items: true,
+        payment: true,
+      },
+    });
+
+    if (!existing) throw new Error('Order not found');
+    if (!existing.payment || existing.payment.provider !== PaymentProvider.CASH) {
+      throw new Error('Only cash sale bills can be updated');
+    }
+    if (existing.status === OrderStatus.CANCELLED) {
+      throw new Error('Cannot update a cancelled cash bill');
+    }
+
+    const oldQtyByProduct = new Map<string, number>();
+    for (const item of existing.items) {
+      oldQtyByProduct.set(
+        item.productId,
+        (oldQtyByProduct.get(item.productId) ?? 0) + item.quantity,
+      );
+    }
+
+    const newQtyByProduct = new Map<string, number>();
+    for (const item of params.items) {
+      newQtyByProduct.set(
+        item.productId,
+        (newQtyByProduct.get(item.productId) ?? 0) + item.quantity,
+      );
+    }
+
+    const allProductIds = new Set([
+      ...oldQtyByProduct.keys(),
+      ...newQtyByProduct.keys(),
+    ]);
+
+    const lineItems: { productId: string; quantity: number; price: number; name: string }[] = [];
+
+    for (const productId of allProductIds) {
+      const product = await tx.product.findUnique({ where: { id: productId } });
+      if (!product) throw new Error(`Product not found: ${productId}`);
+
+      const oldQty = oldQtyByProduct.get(productId) ?? 0;
+      const newQty = newQtyByProduct.get(productId) ?? 0;
+      const available = product.stock + oldQty;
+      if (newQty > available) {
+        throw new Error(`Insufficient stock for ${product.name} (${available} available)`);
+      }
+    }
+
+    for (const item of params.items) {
+      const product = await tx.product.findUnique({ where: { id: item.productId } });
+      if (!product) throw new Error(`Product not found: ${item.productId}`);
+      lineItems.push({
+        productId: item.productId,
+        quantity: item.quantity,
+        price: item.price,
+        name: product.name,
+      });
+    }
+
+    const subtotal = lineItems.reduce((sum, item) => sum + item.price * item.quantity, 0);
+    const totalAmount = subtotal + params.shippingCost;
+
+    await tx.orderItem.deleteMany({ where: { orderId: params.orderId } });
+
+    await tx.order.update({
+      where: { id: params.orderId },
+      data: {
+        subtotalAmount: subtotal,
+        shippingCost: params.shippingCost,
+        totalAmount,
+        shippingName: params.customerName.trim(),
+        shippingPhone: params.customerPhone.trim(),
+        shippingAddress: params.customerAddress.trim(),
+        shippingCity: params.customerCity?.trim() || 'N/A',
+        shippingState: params.customerState?.trim() || 'N/A',
+        items: {
+          create: lineItems.map((item) => ({
+            productId: item.productId,
+            quantity: item.quantity,
+            price: item.price,
+          })),
+        },
+      },
+    });
+
+    await tx.payment.update({
+      where: { orderId: params.orderId },
+      data: { amount: totalAmount },
+    });
+
+    const stockChanges: {
+      productId: string;
+      previousStock: number;
+      newStock: number;
+      productName: string;
+    }[] = [];
+
+    for (const productId of allProductIds) {
+      const oldQty = oldQtyByProduct.get(productId) ?? 0;
+      const newQty = newQtyByProduct.get(productId) ?? 0;
+      const delta = newQty - oldQty;
+      if (delta === 0) continue;
+
+      const product = await tx.product.findUnique({ where: { id: productId } });
+      if (!product) continue;
+
+      const change = await StockService.recordStockChange(tx, {
+        productId,
+        quantityChange: -delta,
+        type: delta > 0 ? StockMovementType.ORDER : StockMovementType.RESTOCK,
+        reason: 'Cash bill updated',
+        referenceId: params.orderId,
+        createdBy: params.adminUserId,
+      });
+      stockChanges.push({
+        productId,
+        previousStock: change.previousStock,
+        newStock: change.newStock,
+        productName: product.name,
+      });
+    }
+
+    const orderWithPayment = await tx.order.findUniqueOrThrow({
+      where: { id: params.orderId },
+      include: {
+        items: { include: { product: true } },
+        payment: true,
+      },
+    });
+
+    return { order: orderWithPayment, stockChanges };
+  });
+};
+
+export const deleteCashSale = async (params: {
+  orderId: string;
+  adminUserId: string;
+}) => {
+  return prisma.$transaction(async (tx) => {
+    const existing = await tx.order.findUnique({
+      where: { id: params.orderId },
+      include: {
+        items: true,
+        payment: true,
+      },
+    });
+
+    if (!existing) throw new Error('Order not found');
+    if (!existing.payment || existing.payment.provider !== PaymentProvider.CASH) {
+      throw new Error('Only cash sale bills can be deleted');
+    }
+
+    const stockChanges: {
+      productId: string;
+      previousStock: number;
+      newStock: number;
+      productName: string;
+    }[] = [];
+
+    const qtyByProduct = new Map<string, number>();
+    for (const item of existing.items) {
+      qtyByProduct.set(
+        item.productId,
+        (qtyByProduct.get(item.productId) ?? 0) + item.quantity,
+      );
+    }
+
+    for (const [productId, quantity] of qtyByProduct) {
+      if (quantity <= 0) continue;
+      const product = await tx.product.findUnique({ where: { id: productId } });
+      if (!product) continue;
+
+      const change = await StockService.recordStockChange(tx, {
+        productId,
+        quantityChange: quantity,
+        type: StockMovementType.RESTOCK,
+        reason: 'Cash bill deleted',
+        referenceId: params.orderId,
+        createdBy: params.adminUserId,
+      });
+      stockChanges.push({
+        productId,
+        previousStock: change.previousStock,
+        newStock: change.newStock,
+        productName: product.name,
+      });
+    }
+
+    await tx.payment.delete({ where: { orderId: params.orderId } });
+    await tx.order.delete({ where: { id: params.orderId } });
+
+    return { stockChanges };
   });
 };
 

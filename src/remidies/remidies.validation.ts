@@ -136,27 +136,103 @@ export const getOrdersQuerySchema = z.object({
 // COUPON
 // ─────────────────────────────────────────────
 
-const couponProductScopeSchema = z.enum(['ALL', 'SPECIFIC']);
+const couponProductScopeSchema = z.enum(['ALL', 'SPECIFIC', 'CATEGORY']);
 
-const couponProductScopeRefinement = (
-  data: { productScope?: 'ALL' | 'SPECIFIC'; productIds?: string[] },
-  ctx: z.RefinementCtx
+const categoryRuleSchema = z.object({
+  categoryId: idSchema,
+  discountValue: z.number().positive('Discount value must be positive').max(100, 'Discount cannot exceed 100%'),
+});
+
+const couponScopeRefinement = (
+  data: {
+    productScope?: 'ALL' | 'SPECIFIC' | 'CATEGORY';
+    productIds?: string[];
+    categoryRules?: { categoryId: string; discountValue: number }[];
+    discountType?: 'PERCENTAGE' | 'FIXED';
+    assignedUserId?: string | null;
+    expiresAt?: string | null;
+  },
+  ctx: z.RefinementCtx,
+  mode: 'create' | 'update'
 ) => {
-  const scope = data.productScope ?? 'ALL';
+  const scope = data.productScope ?? (mode === 'create' ? 'ALL' : undefined);
+
   if (scope === 'SPECIFIC') {
-    if (!data.productIds || data.productIds.length === 0) {
+    if (mode === 'create' && (!data.productIds || data.productIds.length === 0)) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         message: 'At least one product is required when product scope is SPECIFIC',
         path: ['productIds'],
       });
     }
-  } else if (data.productIds && data.productIds.length > 0) {
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      message: 'productIds must be empty when product scope is ALL',
-      path: ['productIds'],
-    });
+    if (mode === 'update' && data.productIds !== undefined && data.productIds.length === 0) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'At least one product is required when product scope is SPECIFIC',
+        path: ['productIds'],
+      });
+    }
+    if (data.categoryRules && data.categoryRules.length > 0) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'categoryRules must be empty when product scope is SPECIFIC',
+        path: ['categoryRules'],
+      });
+    }
+  } else if (scope === 'ALL') {
+    if (data.productIds && data.productIds.length > 0) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'productIds must be empty when product scope is ALL',
+        path: ['productIds'],
+      });
+    }
+    if (data.categoryRules && data.categoryRules.length > 0) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'categoryRules must be empty when product scope is ALL',
+        path: ['categoryRules'],
+      });
+    }
+  } else if (scope === 'CATEGORY') {
+    if (data.productIds && data.productIds.length > 0) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'productIds must be empty when product scope is CATEGORY',
+        path: ['productIds'],
+      });
+    }
+    if (mode === 'create' && (!data.categoryRules || data.categoryRules.length === 0)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'At least one category rule is required when product scope is CATEGORY',
+        path: ['categoryRules'],
+      });
+    }
+    if (mode === 'update' && data.categoryRules !== undefined && data.categoryRules.length === 0) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'At least one category rule is required when product scope is CATEGORY',
+        path: ['categoryRules'],
+      });
+    }
+    if (data.discountType && data.discountType !== 'PERCENTAGE') {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'CATEGORY coupons must use PERCENTAGE discount type',
+        path: ['discountType'],
+      });
+    }
+    if (data.categoryRules && data.categoryRules.length > 0) {
+      const ids = data.categoryRules.map((r) => r.categoryId);
+      if (new Set(ids).size !== ids.length) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: 'Duplicate categories are not allowed in categoryRules',
+          path: ['categoryRules'],
+        });
+      }
+    }
   }
 };
 
@@ -167,12 +243,14 @@ export const createCouponSchema = z.object({
       discountType: z.enum(['PERCENTAGE', 'FIXED']),
       discountValue: z.number().positive('Discount value must be positive'),
       maxUses: z.number().int().positive('Max uses must be at least 1'),
-      expiresAt: z.string().datetime('Invalid expiry date'),
-      assignedUserId: idSchema,
+      expiresAt: z.string().datetime('Invalid expiry date').nullable().optional(),
+      assignedUserId: idSchema.nullable().optional(),
       productScope: couponProductScopeSchema.default('ALL'),
       productIds: z.array(idSchema).min(1).optional(),
+      categoryRules: z.array(categoryRuleSchema).min(1).optional(),
+      isActive: z.boolean().optional(),
     })
-    .superRefine(couponProductScopeRefinement),
+    .superRefine((data, ctx) => couponScopeRefinement(data, ctx, 'create')),
 });
 
 export const updateCouponSchema = z.object({
@@ -181,27 +259,14 @@ export const updateCouponSchema = z.object({
     .object({
       discountValue: z.number().positive().optional(),
       maxUses: z.number().int().positive().optional(),
-      expiresAt: z.string().datetime().optional(),
+      expiresAt: z.string().datetime().nullable().optional(),
       isActive: z.boolean().optional(),
       productScope: couponProductScopeSchema.optional(),
       productIds: z.array(idSchema).min(1).optional(),
+      categoryRules: z.array(categoryRuleSchema).min(1).optional(),
+      assignedUserId: idSchema.nullable().optional(),
     })
-    .superRefine((data, ctx) => {
-      if (data.productScope === 'ALL' && data.productIds && data.productIds.length > 0) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          message: 'productIds must be empty when product scope is ALL',
-          path: ['productIds'],
-        });
-      }
-      if (data.productScope === 'SPECIFIC' && data.productIds !== undefined && data.productIds.length === 0) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          message: 'At least one product is required when product scope is SPECIFIC',
-          path: ['productIds'],
-        });
-      }
-    }),
+    .superRefine((data, ctx) => couponScopeRefinement(data, ctx, 'update')),
 });
 
 export const couponIdParamSchema = z.object({
@@ -319,6 +384,53 @@ export const quickSaleSchema = z.object({
         customerState: body.customerState,
       };
     }),
+});
+
+const updateCashSaleItemSchema = z.object({
+  productId: z.string().uuid('Invalid product ID'),
+  quantity:  z.coerce.number().int().positive('Quantity must be at least 1'),
+  price:     z.coerce.number().nonnegative('Price cannot be negative'),
+});
+
+const mergeUpdateCashSaleItems = (
+  items: { productId: string; quantity: number; price: number }[],
+): { productId: string; quantity: number; price: number }[] => {
+  const byProduct = new Map<string, { quantity: number; price: number }>();
+  for (const item of items) {
+    const existing = byProduct.get(item.productId);
+    if (existing) {
+      existing.quantity += item.quantity;
+      existing.price = item.price;
+    } else {
+      byProduct.set(item.productId, { quantity: item.quantity, price: item.price });
+    }
+  }
+  return Array.from(byProduct.entries()).map(([productId, { quantity, price }]) => ({
+    productId,
+    quantity,
+    price,
+  }));
+};
+
+export const updateCashSaleSchema = z.object({
+  params: z.object({ id: idSchema }),
+  body: z.object({
+    items:        z.array(updateCashSaleItemSchema).min(1, 'At least one item is required'),
+    shippingCost: z.coerce.number().nonnegative('Shipping cost cannot be negative').default(0),
+    ...quickSaleCustomerFields,
+  }).transform((body) => ({
+    items: mergeUpdateCashSaleItems(body.items),
+    shippingCost: body.shippingCost,
+    customerName: body.customerName,
+    customerPhone: body.customerPhone,
+    customerAddress: body.customerAddress,
+    customerCity: body.customerCity,
+    customerState: body.customerState,
+  })),
+});
+
+export const deleteCashSaleSchema = z.object({
+  params: z.object({ id: idSchema }),
 });
 
 export const dashboardStatsSchema = z.object({

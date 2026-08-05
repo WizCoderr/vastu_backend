@@ -370,7 +370,8 @@ model Category {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  products Product[]
+  products         Product[]
+  couponCategories CouponCategory[]
 
   @@index([name])
 }
@@ -557,6 +558,7 @@ enum BulkTierType {
 enum CouponProductScope {
   ALL
   SPECIFIC
+  CATEGORY
 }
 
 model Coupon {
@@ -566,16 +568,17 @@ model Coupon {
   discountValue Decimal      @db.Decimal(10, 2)
   maxUses       Int
   usedCount     Int          @default(0)
-  expiresAt     DateTime
+  expiresAt     DateTime?
   isActive      Boolean      @default(true)
   productScope  CouponProductScope @default(ALL)
 
-  assignedUserId String
-  assignedUser   User         @relation("UserCoupons", fields: [assignedUserId], references: [id], onDelete: Cascade)
+  assignedUserId String?
+  assignedUser   User?        @relation("UserCoupons", fields: [assignedUserId], references: [id], onDelete: Cascade)
 
-  orders   Order[]         @relation("OrderCoupon")
-  usages   CouponUsage[]
-  products CouponProduct[]
+  orders     Order[]          @relation("OrderCoupon")
+  usages     CouponUsage[]
+  products   CouponProduct[]
+  categories CouponCategory[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -592,6 +595,17 @@ model CouponProduct {
 
   @@id([couponId, productId])
   @@index([productId])
+}
+
+model CouponCategory {
+  couponId      String
+  categoryId    String
+  discountValue Decimal  @db.Decimal(10, 2)
+  coupon        Coupon   @relation(fields: [couponId], references: [id], onDelete: Cascade)
+  category      Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+
+  @@id([couponId, categoryId])
+  @@index([categoryId])
 }
 
 model CouponUsage {
