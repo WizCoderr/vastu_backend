@@ -66,6 +66,7 @@ remidiesAdminRouter.delete('/orders/:id/cash-sale', ctrl.deleteCashSale as Reque
 // Stock management
 remidiesAdminRouter.get('/stock/low', ctrl.getLowStockProducts as RequestHandler);
 remidiesAdminRouter.post('/products/:id/stock/adjust', ctrl.adjustProductStock as RequestHandler);
+remidiesAdminRouter.post('/products/:id/stock/opening-cost', ctrl.setProductOpeningCost as RequestHandler);
 remidiesAdminRouter.get('/products/:id/stock/history', ctrl.getProductStockHistory as RequestHandler);
 remidiesAdminRouter.get('/settings/stock', ctrl.getStockSettings as RequestHandler);
 remidiesAdminRouter.put('/settings/stock', ctrl.updateStockSettings as RequestHandler);

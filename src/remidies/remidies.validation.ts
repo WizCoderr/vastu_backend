@@ -29,17 +29,27 @@ export const categoryIdParamSchema = z.object({
 });
 
 export const createProductSchema = z.object({
-  body: z.object({
-    name: z.string().min(1, 'Name is required'),
-    description: z.string().optional(),
-    images: z.array(z.string()).max(10).optional(),
-    price: z.coerce.number().min(0, 'Price cannot be negative'),
-    purchasePrice: z.coerce.number().min(0, 'Purchase price cannot be negative').nullable().optional(),
-    stock: z.coerce.number().int().nonnegative('Stock cannot be negative'),
-    isActive: z.preprocess((val) => val === 'true' || val === true, z.boolean()).optional(),
-    categoryId: idSchema,
-    lowStockThreshold: z.coerce.number().int().nonnegative().nullable().optional(),
-  }),
+  body: z
+    .object({
+      name: z.string().min(1, 'Name is required'),
+      description: z.string().optional(),
+      images: z.array(z.string()).max(10).optional(),
+      price: z.coerce.number().min(0, 'Price cannot be negative'),
+      purchasePrice: z.coerce.number().min(0, 'Purchase price cannot be negative').nullable().optional(),
+      stock: z.coerce.number().int().nonnegative('Stock cannot be negative'),
+      isActive: z.preprocess((val) => val === 'true' || val === true, z.boolean()).optional(),
+      categoryId: idSchema,
+      lowStockThreshold: z.coerce.number().int().nonnegative().nullable().optional(),
+    })
+    .superRefine((data, ctx) => {
+      if (data.stock > 0 && (data.purchasePrice == null || data.purchasePrice === undefined)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: 'Initial unit cost is required when opening stock is greater than 0',
+          path: ['purchasePrice'],
+        });
+      }
+    }),
 });
 
 export const updateProductSchema = z.object({
@@ -311,9 +321,27 @@ export const bulkTierIdParamSchema = z.object({
 
 export const adjustStockSchema = z.object({
   params: z.object({ id: idSchema }),
+  body: z
+    .object({
+      quantityChange: z.number().int().refine((v) => v !== 0, 'quantityChange must be non-zero'),
+      reason: z.string().min(1, 'Reason is required'),
+      unitCost: z.coerce.number().min(0, 'Unit cost cannot be negative').optional(),
+    })
+    .superRefine((data, ctx) => {
+      if (data.quantityChange > 0 && data.unitCost == null) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: 'Unit purchase cost is required when adding stock',
+          path: ['unitCost'],
+        });
+      }
+    }),
+});
+
+export const setOpeningCostSchema = z.object({
+  params: z.object({ id: idSchema }),
   body: z.object({
-    quantityChange: z.number().int().refine((v) => v !== 0, 'quantityChange must be non-zero'),
-    reason: z.string().min(1, 'Reason is required'),
+    unitCost: z.coerce.number().min(0, 'Unit cost cannot be negative'),
   }),
 });
 
@@ -334,16 +362,27 @@ export const updateStockSettingsSchema = z.object({
 const quickSaleItemSchema = z.object({
   productId: z.string().uuid('Invalid product ID'),
   quantity:  z.coerce.number().int().positive('Quantity must be at least 1'),
+  price:     z.coerce.number().nonnegative('Price cannot be negative').optional(),
 });
 
 const mergeQuickSaleItems = (
-  items: { productId: string; quantity: number }[],
-): { productId: string; quantity: number }[] => {
-  const byProduct = new Map<string, number>();
+  items: { productId: string; quantity: number; price?: number }[],
+): { productId: string; quantity: number; price?: number }[] => {
+  const byProduct = new Map<string, { quantity: number; price?: number }>();
   for (const item of items) {
-    byProduct.set(item.productId, (byProduct.get(item.productId) ?? 0) + item.quantity);
+    const existing = byProduct.get(item.productId);
+    if (existing) {
+      existing.quantity += item.quantity;
+      if (item.price !== undefined) existing.price = item.price;
+    } else {
+      byProduct.set(item.productId, { quantity: item.quantity, price: item.price });
+    }
   }
-  return Array.from(byProduct.entries()).map(([productId, quantity]) => ({ productId, quantity }));
+  return Array.from(byProduct.entries()).map(([productId, { quantity, price }]) => ({
+    productId,
+    quantity,
+    price,
+  }));
 };
 
 const quickSaleCustomerFields = {
@@ -365,6 +404,7 @@ export const quickSaleSchema = z.object({
       z.object({
         productId:    z.string().uuid('Invalid product ID'),
         quantity:     z.coerce.number().int().positive('Quantity must be at least 1').default(1),
+        price:        z.coerce.number().nonnegative('Price cannot be negative').optional(),
         shippingCost: z.coerce.number().nonnegative('Shipping cost cannot be negative').default(0),
         ...quickSaleCustomerFields,
       }),
@@ -373,7 +413,7 @@ export const quickSaleSchema = z.object({
       const items =
         'items' in body
           ? body.items
-          : [{ productId: body.productId, quantity: body.quantity }];
+          : [{ productId: body.productId, quantity: body.quantity, price: body.price }];
       return {
         items: mergeQuickSaleItems(items),
         shippingCost: body.shippingCost,

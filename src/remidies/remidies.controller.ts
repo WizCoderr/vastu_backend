@@ -24,6 +24,7 @@ import {
   updateBulkTierSchema,
   bulkTierIdParamSchema,
   adjustStockSchema,
+  setOpeningCostSchema,
   stockHistoryQuerySchema,
   updateStockSettingsSchema,
   quickSaleSchema,
@@ -177,7 +178,15 @@ export const getCategories: RequestHandler = async (_req, res, next) => {
 };
 
 const sanitizePublicProduct = <T extends Record<string, unknown>>(product: T) => {
-  const { lowStockThreshold, lowStockAlertSentAt, purchasePrice, ...rest } = product;
+  const {
+    lowStockThreshold,
+    lowStockAlertSentAt,
+    purchasePrice,
+    lastPurchasePrice,
+    inventoryValue,
+    stock: _stock,
+    ...rest
+  } = product;
   return rest;
 };
 
@@ -269,17 +278,27 @@ export const updateProduct: RequestHandler = async (req: AuthRequest, res, next)
     const existing = await intent.getProductById(id);
 
     const newImages = await handleMultipleImageUpload(req, 'products');
+    const hasImageUpdate =
+      newImages.length > 0 ||
+      data.imagesToKeep !== undefined ||
+      data.images !== undefined;
 
-    const keepImages = data.imagesToKeep ?? (existing?.images as string[] | undefined) ?? [];
-    const removedImages = ((existing?.images as string[] | undefined) ?? [])
-      .filter(img => !keepImages.includes(img));
-
-    data.images = [...keepImages, ...newImages];
+    let removedImages: string[] = [];
+    if (hasImageUpdate) {
+      const keepImages = data.imagesToKeep ?? (existing?.images as string[] | undefined) ?? [];
+      removedImages = ((existing?.images as string[] | undefined) ?? [])
+        .filter(img => !keepImages.includes(img));
+      data.images = [...keepImages, ...newImages];
+    } else {
+      delete data.images;
+    }
     delete data.imagesToKeep;
 
     const product = await intent.updateProduct(id, data);
 
-    await Promise.all(removedImages.map(deleteCloudinaryImage));
+    if (removedImages.length > 0) {
+      await Promise.all(removedImages.map(deleteCloudinaryImage));
+    }
 
     product.images = await signImages(product.images as string[]);
     res.status(200).json({ success: true, data: product });
@@ -456,8 +475,17 @@ export const getLowStockProducts: RequestHandler = async (_req, res, next) => {
 export const adjustProductStock: RequestHandler = async (req: AuthRequest, res, next) => {
   try {
     const { id } = adjustStockSchema.parse(req).params;
-    const { quantityChange, reason } = adjustStockSchema.parse(req).body;
-    const product = await intent.adjustProductStock(id, quantityChange, reason, req.user!.userId);
+    const { quantityChange, reason, unitCost } = adjustStockSchema.parse(req).body;
+    const product = await intent.adjustProductStock(id, quantityChange, reason, req.user!.userId, unitCost);
+    res.status(200).json({ success: true, data: product });
+  } catch (error) { next(error); }
+};
+
+export const setProductOpeningCost: RequestHandler = async (req: AuthRequest, res, next) => {
+  try {
+    const { id } = setOpeningCostSchema.parse(req).params;
+    const { unitCost } = setOpeningCostSchema.parse(req).body;
+    const product = await intent.setProductOpeningCost(id, unitCost, req.user!.userId);
     res.status(200).json({ success: true, data: product });
   } catch (error) { next(error); }
 };

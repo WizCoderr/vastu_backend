@@ -34,10 +34,38 @@ const round2 = (n: number) => Math.round(n * 100) / 100;
 const marginPercent = (profit: number, cost: number): number | null =>
   cost > 0 ? round2((profit / cost) * 100) : null;
 
-const formatAdminProduct = <T extends { price: unknown; purchasePrice?: unknown | null }>(product: T) => {
+const formatAdminProduct = <T extends {
+  price: unknown;
+  purchasePrice?: unknown | null;
+  lastPurchasePrice?: unknown | null;
+  inventoryValue?: unknown;
+}>(product: T) => {
   const price = Number(product.price);
   const purchasePrice = product.purchasePrice != null ? Number(product.purchasePrice) : null;
-  return { ...product, price, rate: price, purchasePrice };
+  const lastPurchasePrice = product.lastPurchasePrice != null ? Number(product.lastPurchasePrice) : null;
+  const inventoryValue = product.inventoryValue != null ? Number(product.inventoryValue) : 0;
+  return { ...product, price, rate: price, purchasePrice, lastPurchasePrice, inventoryValue };
+};
+
+const stripCostFromProduct = <T extends Record<string, unknown>>(product: T) => {
+  const {
+    purchasePrice: _p,
+    lastPurchasePrice: _l,
+    inventoryValue: _v,
+    lowStockThreshold: _t,
+    lowStockAlertSentAt: _a,
+    ...rest
+  } = product;
+  return rest;
+};
+
+const lineItemUnitCost = (item: {
+  unitCostAtSale?: unknown | null;
+  product?: { purchasePrice?: unknown | null };
+}): number | null => {
+  if (item.unitCostAtSale != null) return Number(item.unitCostAtSale);
+  if (item.product?.purchasePrice != null) return Number(item.product.purchasePrice);
+  return null;
 };
 
 export const createProduct = async (data: {
@@ -137,11 +165,11 @@ type RawCart = NonNullable<Awaited<ReturnType<typeof reducer.getCartByUserId>>>;
 
 export const formatCartProduct = (product: RawCart['items'][number]['product']) => {
   const price = Number(product.price);
-  return {
+  return stripCostFromProduct({
     ...product,
     price,
     rate: price,
-  };
+  });
 };
 
 export const formatCart = (cart: RawCart | null) => {
@@ -517,11 +545,11 @@ export const getUserOrders = async (userId: string) => {
     items: order.items.map((item) => ({
       ...item,
       price: Number(item.price),
-      product: {
+      product: stripCostFromProduct({
         ...item.product,
         price: Number(item.product.price),
         rate: Number(item.product.price),
-      },
+      }),
     })),
     payment: order.payment ? { ...order.payment, amount: Number(order.payment.amount) } : null,
   }));
@@ -541,7 +569,13 @@ export const getAllOrders = async (params: { page: number; limit: number; status
       items: order.items.map((item) => ({
         ...item,
         price: Number(item.price),
-        product: { ...item.product, price: Number(item.product.price) },
+        unitCostAtSale: item.unitCostAtSale != null ? Number(item.unitCostAtSale) : null,
+        product: {
+          ...item.product,
+          price: Number(item.product.price),
+          purchasePrice: item.product.purchasePrice != null ? Number(item.product.purchasePrice) : null,
+          lastPurchasePrice: item.product.lastPurchasePrice != null ? Number(item.product.lastPurchasePrice) : null,
+        },
       })),
       payment: order.payment
         ? { ...order.payment, amount: Number(order.payment.amount) }
@@ -568,7 +602,13 @@ export const getOrder = async (orderId: string) => {
     items: order.items.map((item) => ({
       ...item,
       price: Number(item.price),
-      product: { ...item.product, price: Number(item.product.price) },
+      unitCostAtSale: item.unitCostAtSale != null ? Number(item.unitCostAtSale) : null,
+      product: {
+        ...item.product,
+        price: Number(item.product.price),
+        purchasePrice: item.product.purchasePrice != null ? Number(item.product.purchasePrice) : null,
+        lastPurchasePrice: item.product.lastPurchasePrice != null ? Number(item.product.lastPurchasePrice) : null,
+      },
     })),
     payment: order.payment ? { ...order.payment, amount: Number(order.payment.amount) } : null,
   };
@@ -584,8 +624,12 @@ export const updateOrderStatus = async (orderId: string, status: OrderStatus, ad
   if (status === OrderStatus.CANCELLED && previousStatus !== OrderStatus.CANCELLED) {
     await StockService.restoreOrderStock(
       orderId,
-      order.items.map((item) => ({ productId: item.productId, quantity: item.quantity })),
-      adminUserId
+      order.items.map((item) => ({
+        productId: item.productId,
+        quantity: item.quantity,
+        unitCost: item.unitCostAtSale != null ? Number(item.unitCostAtSale) : null,
+      })),
+      adminUserId,
     );
   }
 
@@ -610,11 +654,23 @@ export const adjustProductStock = async (
   productId: string,
   quantityChange: number,
   reason: string,
-  adminUserId: string
+  adminUserId: string,
+  unitCost?: number,
 ) => {
   const product = await reducer.getProductById(productId);
   if (!product) throw new Error('Product not found');
-  return StockService.adjustStock(productId, quantityChange, reason, adminUserId);
+  return StockService.adjustStock(productId, quantityChange, reason, adminUserId, unitCost);
+};
+
+export const setProductOpeningCost = async (
+  productId: string,
+  unitCost: number,
+  adminUserId: string,
+) => {
+  const product = await reducer.getProductById(productId);
+  if (!product) throw new Error('Product not found');
+  const updated = await StockService.setOpeningCost(productId, unitCost, adminUserId);
+  return formatAdminProduct(updated);
 };
 
 export const getProductStockHistory = async (productId: string, page: number, limit: number) => {
@@ -889,7 +945,7 @@ export const deleteBulkTier = async (id: string) => {
 // --- QUICK CASH SALE (POS) ---
 
 export const createQuickSale = async (params: {
-  items:        { productId: string; quantity: number }[];
+  items:        { productId: string; quantity: number; price?: number }[];
   shippingCost: number;
   adminUserId:  string;
   customerName?: string;
@@ -985,7 +1041,10 @@ export const getDashboardStats = async (params: { startDate?: Date; endDate?: Da
     totalSales    += Number(order.totalAmount);
     totalShipping += Number(order.shippingCost ?? 0);
     for (const item of order.items) {
-      totalPurchaseCost += Number(item.product.purchasePrice ?? 0) * item.quantity;
+      const unitCost = lineItemUnitCost(item);
+      if (unitCost != null) {
+        totalPurchaseCost += unitCost * item.quantity;
+      }
     }
   }
 
@@ -1027,7 +1086,8 @@ export const getInventorySummary = async (params: { startDate?: Date; endDate?: 
   for (const item of soldItems) {
     const existing = soldByProduct.get(item.productId) ?? emptySoldMetrics();
     const lineRevenue = Number(item.price) * item.quantity;
-    const lineCost = Number(item.product.purchasePrice ?? 0) * item.quantity;
+    const unitCost = lineItemUnitCost(item);
+    const lineCost = (unitCost ?? 0) * item.quantity;
     const provider = item.order.payment?.provider;
 
     existing.quantitySold += item.quantity;
@@ -1043,19 +1103,26 @@ export const getInventorySummary = async (params: { startDate?: Date; endDate?: 
 
   let totalUnits = 0;
   let totalPurchaseValue = 0;
+  let totalValueAtLastCost = 0;
   let totalSellingValue = 0;
   let totalUnitsSold = 0;
 
   const productRows = products.map((product) => {
     const stock = product.stock;
-    const purchasePrice = product.purchasePrice != null ? Number(product.purchasePrice) : null;
+    const averageCost = product.purchasePrice != null ? Number(product.purchasePrice) : null;
+    const lastPurchasePrice = product.lastPurchasePrice != null ? Number(product.lastPurchasePrice) : null;
     const sellingPrice = Number(product.price);
-    const purchaseValue = round2(stock * (purchasePrice ?? 0));
+    const inventoryValue = Number(product.inventoryValue ?? 0);
+    const purchaseValue = round2(inventoryValue);
+    const valueAtLastCost = round2(stock * (lastPurchasePrice ?? 0));
     const sellingValue = round2(stock * sellingPrice);
     const potentialProfit = round2(sellingValue - purchaseValue);
+    const profitPerUnit =
+      averageCost != null ? round2(sellingPrice - averageCost) : null;
 
     totalUnits += stock;
     totalPurchaseValue += purchaseValue;
+    totalValueAtLastCost += valueAtLastCost;
     totalSellingValue += sellingValue;
 
     const sold = soldByProduct.get(product.id) ?? emptySoldMetrics();
@@ -1067,10 +1134,15 @@ export const getInventorySummary = async (params: { startDate?: Date; endDate?: 
       name: product.name,
       category: product.category,
       stock,
-      purchasePrice,
+      purchasePrice: averageCost,
+      averageCost,
+      lastPurchasePrice,
       sellingPrice,
+      profitPerUnit,
       onHand: {
         purchaseValue,
+        inventoryValue: purchaseValue,
+        valueAtLastCost,
         sellingValue,
         potentialProfit,
         profitMarginPercent: marginPercent(potentialProfit, purchaseValue),
@@ -1097,7 +1169,10 @@ export const getInventorySummary = async (params: { startDate?: Date; endDate?: 
     totalRevenue += Number(order.totalAmount);
     totalShipping += Number(order.shippingCost ?? 0);
     for (const item of order.items) {
-      totalPurchaseCost += Number(item.product.purchasePrice ?? 0) * item.quantity;
+      const unitCost = lineItemUnitCost(item);
+      if (unitCost != null) {
+        totalPurchaseCost += unitCost * item.quantity;
+      }
     }
     if (order.payment?.provider === PaymentProvider.CASH) {
       cashSaleOrderCount++;
@@ -1114,6 +1189,7 @@ export const getInventorySummary = async (params: { startDate?: Date; endDate?: 
       onHand: {
         totalUnits,
         totalPurchaseValue: round2(totalPurchaseValue),
+        totalValueAtLastCost: round2(totalValueAtLastCost),
         totalSellingValue: round2(totalSellingValue),
         potentialProfit,
         profitMarginPercent: marginPercent(potentialProfit, totalPurchaseValue),

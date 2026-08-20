@@ -72,7 +72,6 @@ export const createProduct = async (data: {
         description: data.description,
         images: data.images ?? [],
         price: data.price,
-        purchasePrice: data.purchasePrice,
         stock: 0,
         isActive: data.isActive,
         categoryId: data.categoryId,
@@ -81,11 +80,15 @@ export const createProduct = async (data: {
     });
 
     if (data.stock > 0) {
+      if (data.purchasePrice == null) {
+        throw new Error('Initial unit cost is required when opening stock is greater than 0');
+      }
       await StockService.recordStockChange(tx, {
         productId: product.id,
         quantityChange: data.stock,
         type: StockMovementType.INITIAL,
         reason: 'Initial stock',
+        unitCost: Number(data.purchasePrice),
       });
     }
 
@@ -97,9 +100,10 @@ export const createProduct = async (data: {
 };
 
 export const updateProduct = async (productId: string, data: Partial<Parameters<typeof createProduct>[0]>) => {
+  const { purchasePrice: _purchasePrice, stock: _stock, ...safeData } = data;
   return prisma.product.update({
     where: { id: productId },
-    data,
+    data: safeData,
   });
 };
 
@@ -215,16 +219,30 @@ export const createOrderWithTransaction = async (
   }
 ) => {
   return prisma.$transaction(async (tx) => {
-    // 1. Verify stock for all items
+    // 1. Verify stock for all items and resolve WAC at sale
+    const itemsWithCost: {
+      productId: string;
+      quantity: number;
+      price: number;
+      unitCostAtSale: number | null;
+    }[] = [];
+
     for (const item of cartItems) {
       const product = await tx.product.findUnique({
         where: { id: item.productId },
-        select: { stock: true, name: true },
+        select: { stock: true, name: true, purchasePrice: true },
       });
 
       if (!product || product.stock < item.quantity) {
         throw new Error(`Insufficient stock for product ${product?.name ?? item.productId}`);
       }
+
+      itemsWithCost.push({
+        productId: item.productId,
+        quantity: item.quantity,
+        price: item.price,
+        unitCostAtSale: StockService.getCostAtSale(product),
+      });
     }
 
     // 2. Create the Order
@@ -239,10 +257,11 @@ export const createOrderWithTransaction = async (
         couponId: breakdown.appliedCouponId ?? undefined,
         ...shippingDetails,
         items: {
-          create: cartItems.map((item) => ({
+          create: itemsWithCost.map((item) => ({
             productId: item.productId,
             quantity: item.quantity,
             price: item.price,
+            unitCostAtSale: item.unitCostAtSale,
           })),
         },
       },
@@ -251,7 +270,7 @@ export const createOrderWithTransaction = async (
 
     // 3. Decrement stock with audit trail
     const stockChanges: { productId: string; previousStock: number; newStock: number; productName: string }[] = [];
-    for (const item of cartItems) {
+    for (const item of itemsWithCost) {
       const change = await StockService.recordStockChange(tx, {
         productId: item.productId,
         quantityChange: -item.quantity,
@@ -581,7 +600,7 @@ export const deleteBulkTier = async (id: string) => {
 // --- QUICK CASH SALE (POS) ---
 
 export const createQuickSale = async (params: {
-  items:        { productId: string; quantity: number }[];
+  items:        { productId: string; quantity: number; price?: number }[];
   shippingCost: number;
   adminUserId:  string;
   customerName?: string;
@@ -591,7 +610,13 @@ export const createQuickSale = async (params: {
   customerState?: string;
 }) => {
   return prisma.$transaction(async (tx) => {
-    const lineItems: { productId: string; quantity: number; price: number; name: string }[] = [];
+    const lineItems: {
+      productId: string;
+      quantity: number;
+      price: number;
+      unitCostAtSale: number | null;
+      name: string;
+    }[] = [];
 
     for (const item of params.items) {
       const product = await tx.product.findUnique({ where: { id: item.productId } });
@@ -602,7 +627,8 @@ export const createQuickSale = async (params: {
       lineItems.push({
         productId: item.productId,
         quantity:  item.quantity,
-        price:     Number(product.price),
+        price:     item.price != null ? Number(item.price) : Number(product.price),
+        unitCostAtSale: StockService.getCostAtSale(product),
         name:      product.name,
       });
     }
@@ -628,6 +654,7 @@ export const createQuickSale = async (params: {
             productId: item.productId,
             quantity:  item.quantity,
             price:     item.price,
+            unitCostAtSale: item.unitCostAtSale,
           })),
         },
       },
@@ -710,11 +737,20 @@ export const updateCashSale = async (params: {
     }
 
     const oldQtyByProduct = new Map<string, number>();
+    const oldCostByProduct = new Map<string, { qty: number; totalCost: number }>();
     for (const item of existing.items) {
       oldQtyByProduct.set(
         item.productId,
         (oldQtyByProduct.get(item.productId) ?? 0) + item.quantity,
       );
+      if (item.unitCostAtSale != null) {
+        const cost = Number(item.unitCostAtSale);
+        const prev = oldCostByProduct.get(item.productId) ?? { qty: 0, totalCost: 0 };
+        oldCostByProduct.set(item.productId, {
+          qty: prev.qty + item.quantity,
+          totalCost: prev.totalCost + cost * item.quantity,
+        });
+      }
     }
 
     const newQtyByProduct = new Map<string, number>();
@@ -730,7 +766,13 @@ export const updateCashSale = async (params: {
       ...newQtyByProduct.keys(),
     ]);
 
-    const lineItems: { productId: string; quantity: number; price: number; name: string }[] = [];
+    const lineItems: {
+      productId: string;
+      quantity: number;
+      price: number;
+      unitCostAtSale: number | null;
+      name: string;
+    }[] = [];
 
     for (const productId of allProductIds) {
       const product = await tx.product.findUnique({ where: { id: productId } });
@@ -747,10 +789,30 @@ export const updateCashSale = async (params: {
     for (const item of params.items) {
       const product = await tx.product.findUnique({ where: { id: item.productId } });
       if (!product) throw new Error(`Product not found: ${item.productId}`);
+
+      const oldQty = oldQtyByProduct.get(item.productId) ?? 0;
+      const oldCostEntry = oldCostByProduct.get(item.productId);
+      const oldAvgCost =
+        oldCostEntry && oldCostEntry.qty > 0 ? oldCostEntry.totalCost / oldCostEntry.qty : null;
+      const currentWac = StockService.getCostAtSale(product);
+
+      let unitCostAtSale: number | null;
+      if (oldAvgCost != null && item.quantity <= oldQty) {
+        unitCostAtSale = Math.round(oldAvgCost * 100) / 100;
+      } else if (oldAvgCost != null && oldQty > 0 && item.quantity > oldQty) {
+        const extraQty = item.quantity - oldQty;
+        const blended =
+          (oldQty * oldAvgCost + extraQty * (currentWac ?? oldAvgCost)) / item.quantity;
+        unitCostAtSale = Math.round(blended * 100) / 100;
+      } else {
+        unitCostAtSale = currentWac;
+      }
+
       lineItems.push({
         productId: item.productId,
         quantity: item.quantity,
         price: item.price,
+        unitCostAtSale,
         name: product.name,
       });
     }
@@ -776,6 +838,7 @@ export const updateCashSale = async (params: {
             productId: item.productId,
             quantity: item.quantity,
             price: item.price,
+            unitCostAtSale: item.unitCostAtSale,
           })),
         },
       },
@@ -809,6 +872,16 @@ export const updateCashSale = async (params: {
         reason: 'Cash bill updated',
         referenceId: params.orderId,
         createdBy: params.adminUserId,
+        ...(delta < 0
+          ? {
+              unitCost: (() => {
+                const entry = oldCostByProduct.get(productId);
+                if (entry && entry.qty > 0) return Math.round((entry.totalCost / entry.qty) * 100) / 100;
+                return StockService.getCostAtSale(product!) ?? undefined;
+              })(),
+              updateLastPurchasePrice: false,
+            }
+          : {}),
       });
       stockChanges.push({
         productId,
@@ -855,15 +928,26 @@ export const deleteCashSale = async (params: {
       productName: string;
     }[] = [];
 
-    const qtyByProduct = new Map<string, number>();
+    const qtyByProduct = new Map<string, { quantity: number; unitCost: number | null }>();
     for (const item of existing.items) {
-      qtyByProduct.set(
-        item.productId,
-        (qtyByProduct.get(item.productId) ?? 0) + item.quantity,
-      );
+      const prev = qtyByProduct.get(item.productId);
+      const cost = item.unitCostAtSale != null ? Number(item.unitCostAtSale) : null;
+      if (prev) {
+        const totalQty = prev.quantity + item.quantity;
+        const blendedCost =
+          prev.unitCost != null && cost != null
+            ? (prev.unitCost * prev.quantity + cost * item.quantity) / totalQty
+            : prev.unitCost ?? cost;
+        qtyByProduct.set(item.productId, {
+          quantity: totalQty,
+          unitCost: blendedCost != null ? Math.round(blendedCost * 100) / 100 : null,
+        });
+      } else {
+        qtyByProduct.set(item.productId, { quantity: item.quantity, unitCost: cost });
+      }
     }
 
-    for (const [productId, quantity] of qtyByProduct) {
+    for (const [productId, { quantity, unitCost }] of qtyByProduct) {
       if (quantity <= 0) continue;
       const product = await tx.product.findUnique({ where: { id: productId } });
       if (!product) continue;
@@ -875,6 +959,8 @@ export const deleteCashSale = async (params: {
         reason: 'Cash bill deleted',
         referenceId: params.orderId,
         createdBy: params.adminUserId,
+        unitCost: unitCost ?? StockService.getCostAtSale(product) ?? undefined,
+        updateLastPurchasePrice: false,
       });
       stockChanges.push({
         productId,
@@ -913,6 +999,7 @@ export const getOrdersForStats = async (params: { startDate?: Date; endDate?: Da
       items: {
         select: {
           quantity: true,
+          unitCostAtSale: true,
           product:  { select: { purchasePrice: true } },
         },
       },
@@ -939,6 +1026,7 @@ export const getSoldItemsForInventory = async (params: { startDate?: Date; endDa
       productId: true,
       quantity:  true,
       price:     true,
+      unitCostAtSale: true,
       product:   { select: { purchasePrice: true } },
       order:     { select: { payment: { select: { provider: true } } } },
     },

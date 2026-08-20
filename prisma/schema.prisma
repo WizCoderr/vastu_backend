@@ -382,7 +382,9 @@ model Product {
   description String?
   images      Json    @default("[]")
   price         Decimal  @db.Decimal(10, 2)
-  purchasePrice Decimal? @db.Decimal(10, 2)
+  purchasePrice Decimal? @db.Decimal(10, 2) // weighted average cost (WAC)
+  lastPurchasePrice Decimal? @db.Decimal(10, 2)
+  inventoryValue Decimal @default(0) @db.Decimal(12, 2) // on-hand cost value (source of truth)
   stock         Int      @default(0)
   isActive    Boolean @default(true)
 
@@ -427,6 +429,7 @@ model StockMovement {
   reason         String?
   referenceId    String?
   createdBy      String?
+  unitCost       Decimal?          @db.Decimal(10, 2)
   createdAt      DateTime          @default(now())
 
   product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
@@ -534,6 +537,7 @@ model OrderItem {
 
   quantity Int
   price    Decimal @db.Decimal(10, 2)
+  unitCostAtSale Decimal? @db.Decimal(10, 2)
 
   order   Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
   product Product @relation(fields: [productId], references: [id], onDelete: Cascade)

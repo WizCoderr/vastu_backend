@@ -4,8 +4,8 @@ import { prisma } from '../src/core/prisma';
 
 
 async function main() {
-  const email = 'parveenmakhija10@gmail.com';
-  const password = 'parveen123';
+  const email = 'janakipradhanjanaki@gmail.com';
+  const password = '@janakip97';
 
 
 

@@ -5,6 +5,7 @@
   "private": true,
   "scripts": {
     "dev": "bun run --watch src/index.ts",
+    "test": "bun test",
     "migrate_mongo": "bun run scripts/migrate_mongo.ts",
     "build": "bun build ./src/index.ts --outdir ./dist --target node",
     "start": "bun run src/index.ts"
