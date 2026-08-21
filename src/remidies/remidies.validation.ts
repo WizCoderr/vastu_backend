@@ -107,6 +107,12 @@ export const updateCartItemSchema = z.object({
   }),
 });
 
+export const removeCartItemSchema = z.object({
+  params: z.object({
+    productId: idSchema,
+  }),
+});
+
 export const createOrderSchema = z.object({
   body: z.object({
     shippingName: z.string().min(1, 'Shipping name is required'),

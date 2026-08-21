@@ -12,6 +12,7 @@ import {
   getProductsQuerySchema,
   addToCartSchema,
   updateCartItemSchema,
+  removeCartItemSchema,
   createOrderSchema,
   updateOrderStatusSchema,
   orderIdParamSchema,
@@ -405,7 +406,7 @@ export const updateCartItem: RequestHandler = async (req: AuthRequest, res, next
 export const removeCartItem: RequestHandler = async (req: AuthRequest, res, next) => {
   try {
     const userId = req.user!.userId;
-    const { productId } = updateCartItemSchema.parse(req).params;
+    const { productId } = removeCartItemSchema.parse(req).params;
     const cart = await signCartProductImages(await intent.removeFromCart(userId, productId));
     res.status(200).json({ success: true, data: cart });
   } catch (error) { next(error); }
