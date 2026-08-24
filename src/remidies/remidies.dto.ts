@@ -50,7 +50,7 @@ export const updateProductSchema = z.object({
     description: z.string().optional(),
     image: z.string().url().optional(),
     price: z.number().min(0).optional(),
-    stock: z.number().int().nonnegative().optional(),
+    // stock / purchasePrice are WAC-managed via inventory APIs
     isActive: z.boolean().optional(),
     categoryId: objectIdSchema.optional(),
   }),
