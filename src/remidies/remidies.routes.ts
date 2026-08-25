@@ -68,6 +68,7 @@ remidiesAdminRouter.get('/stock/low', ctrl.getLowStockProducts as RequestHandler
 remidiesAdminRouter.post('/products/:id/stock/adjust', ctrl.adjustProductStock as RequestHandler);
 remidiesAdminRouter.post('/products/:id/stock/opening-cost', ctrl.setProductOpeningCost as RequestHandler);
 remidiesAdminRouter.get('/products/:id/stock/history', ctrl.getProductStockHistory as RequestHandler);
+remidiesAdminRouter.post('/products/:id/stock/history/delete', ctrl.deleteProductStockMovements as RequestHandler);
 remidiesAdminRouter.get('/settings/stock', ctrl.getStockSettings as RequestHandler);
 remidiesAdminRouter.put('/settings/stock', ctrl.updateStockSettings as RequestHandler);
 remidiesAdminRouter.get('/inventory/summary', ctrl.getInventorySummary as RequestHandler);
@@ -75,9 +76,12 @@ remidiesAdminRouter.get('/inventory/summary', ctrl.getInventorySummary as Reques
 // Coupon management (admin)
 remidiesAdminRouter.post('/coupons', ctrl.createCoupon as RequestHandler);
 remidiesAdminRouter.get('/coupons', ctrl.getCoupons as RequestHandler);
+remidiesAdminRouter.post('/coupons/grants/:grantId/revoke', ctrl.revokeCouponGrant as RequestHandler);
 remidiesAdminRouter.get('/coupons/:id', ctrl.getCoupon as RequestHandler);
 remidiesAdminRouter.put('/coupons/:id', ctrl.updateCoupon as RequestHandler);
 remidiesAdminRouter.delete('/coupons/:id', ctrl.deactivateCoupon as RequestHandler);
+remidiesAdminRouter.post('/coupons/:id/send', ctrl.sendCoupon as RequestHandler);
+remidiesAdminRouter.get('/coupons/:id/grants', ctrl.getCouponGrants as RequestHandler);
 
 // Bulk discount tier management (admin)
 remidiesAdminRouter.post('/bulk-tiers', ctrl.createBulkTier as RequestHandler);

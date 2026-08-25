@@ -73,13 +73,35 @@ import { NextFunction, Request, Response } from "express";
 import logger from "./utils/logger";
 
 app.use((err: any, req: Request, res: Response, next: NextFunction) => {
-  logger.error("Unhandled error", { error: err });
-  res.status(500).json({
+  const message =
+    err?.message ||
+    (typeof err === 'string' ? err : null) ||
+    'Unknown Error';
+  logger.error('Unhandled error', {
+    message,
+    name: err?.name,
+    code: err?.code,
+    stack: err?.stack,
+  });
+
+  const isClientError =
+    typeof message === 'string' &&
+    (message.startsWith('Cannot delete') ||
+      message.startsWith('Only RESTOCK') ||
+      message.startsWith('Stock movement not found') ||
+      message.startsWith('At least one movement') ||
+      message.startsWith('Product not found') ||
+      message.startsWith('Insufficient stock') ||
+      message.startsWith('Unit purchase cost') ||
+      message.startsWith('Set opening unit cost') ||
+      message.startsWith('Opening cost'));
+
+  res.status(isClientError ? 400 : 500).json({
     success: false,
     error:
-      process.env.NODE_ENV === "production"
-        ? "Internal Server Error"
-        : err.message || "Unknown Error",
+      process.env.NODE_ENV === 'production' && !isClientError
+        ? 'Internal Server Error'
+        : message,
   });
 });
 

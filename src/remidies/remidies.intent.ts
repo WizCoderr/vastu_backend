@@ -398,10 +398,10 @@ const computeCouponDiscount = (
   return { discountAmount, eligibleSubtotal };
 };
 
-const assertCouponEligibleForUser = (
-  coupon: NonNullable<CouponWithProducts>,
+const assertCouponEligibleForUser = async (
+  coupon: NonNullable<CouponWithProducts> & { requiresGrant?: boolean },
   userId: string
-) => {
+): Promise<string | null> => {
   if (!coupon.isActive) throw new Error('This coupon has been deactivated');
   if (coupon.assignedUserId && coupon.assignedUserId !== userId) {
     throw new Error('This coupon is not valid for your account');
@@ -412,21 +412,36 @@ const assertCouponEligibleForUser = (
   if (coupon.usedCount >= coupon.maxUses) {
     throw new Error('This coupon has reached its maximum usage limit');
   }
+
+  if (coupon.requiresGrant) {
+    const activeGrant = await reducer.getActiveGrantForUser(coupon.id, userId);
+    if (activeGrant) return activeGrant.id;
+
+    const anyGrant = await reducer.getAnyGrantForUser(coupon.id, userId);
+    if (anyGrant?.status === 'REDEEMED') {
+      throw new Error(
+        'You have already used this coupon. Ask us to send it to you again to use it once more.'
+      );
+    }
+    throw new Error('This coupon is not available for your account. It must be sent to you first.');
+  }
+
+  return null;
 };
 
 const validateCoupon = async (
   code: string,
   userId: string,
   context: CouponCartContext
-): Promise<{ couponId: string; couponMaxUses: number; discountAmount: number }> => {
+): Promise<{ couponId: string; couponMaxUses: number; discountAmount: number; grantId: string | null }> => {
   const coupon = await reducer.getCouponByCode(code.toUpperCase());
 
   if (!coupon) throw new Error('Coupon not found or invalid');
-  assertCouponEligibleForUser(coupon, userId);
+  const grantId = await assertCouponEligibleForUser(coupon, userId);
 
   const { discountAmount } = computeCouponDiscount(coupon, context);
 
-  return { couponId: coupon.id, couponMaxUses: coupon.maxUses, discountAmount };
+  return { couponId: coupon.id, couponMaxUses: coupon.maxUses, discountAmount, grantId };
 };
 
 // --- ORDER INTENT ---
@@ -486,6 +501,7 @@ export const checkoutCart = async (
   let couponDiscount = 0;
   let appliedCouponId: string | null = null;
   let couponMaxUses: number | null = null;
+  let appliedGrantId: string | null = null;
 
   if (couponCode) {
     const couponResult = await validateCoupon(couponCode, userId, {
@@ -496,6 +512,7 @@ export const checkoutCart = async (
     couponDiscount = couponResult.discountAmount;
     appliedCouponId = couponResult.couponId;
     couponMaxUses = couponResult.couponMaxUses;
+    appliedGrantId = couponResult.grantId;
   }
 
   const totalAmount = Math.max(0, postBulkAmount - couponDiscount);
@@ -503,7 +520,7 @@ export const checkoutCart = async (
   const result = await reducer.createOrderWithTransaction(
     userId,
     orderItemsData,
-    { subtotalAmount, bulkDiscount, couponDiscount, totalAmount, appliedCouponId, couponMaxUses },
+    { subtotalAmount, bulkDiscount, couponDiscount, totalAmount, appliedCouponId, couponMaxUses, appliedGrantId },
     shippingDetails
   );
 
@@ -679,6 +696,22 @@ export const getProductStockHistory = async (productId: string, page: number, li
   return StockService.getStockHistory(productId, page, limit);
 };
 
+export const deleteProductStockMovements = async (
+  productId: string,
+  movementIds: string[],
+  adminUserId: string,
+) => {
+  const product = await reducer.getProductById(productId);
+  if (!product) throw new Error('Product not found');
+  const result = await StockService.deleteStockMovements(productId, movementIds, adminUserId);
+  return {
+    ...formatAdminProduct(result),
+    deletedCount: result.deletedCount,
+    previousStock: result.previousStock,
+    newStock: result.newStock,
+  };
+};
+
 export const getStockSettings = async () => StockService.getSettings();
 
 export const updateStockSettings = async (globalLowStockThreshold: number) =>
@@ -697,6 +730,7 @@ export const createCoupon = async (data: {
   productIds?: string[];
   categoryRules?: { categoryId: string; discountValue: number }[];
   isActive?: boolean;
+  requiresGrant?: boolean;
 }) => {
   const existing = await reducer.getCouponByCode(data.code.toUpperCase());
   if (existing) throw new Error('A coupon with this code already exists');
@@ -725,6 +759,7 @@ export const createCoupon = async (data: {
     productIds,
     categoryRules,
     isActive: data.isActive,
+    requiresGrant: data.requiresGrant ?? false,
   });
 
   return coupon ? formatCouponResponse(coupon) : null;
@@ -750,6 +785,7 @@ export const updateCoupon = async (id: string, data: {
   productIds?: string[];
   categoryRules?: { categoryId: string; discountValue: number }[];
   assignedUserId?: string | null;
+  requiresGrant?: boolean;
 }) => {
   const existing = await reducer.getCouponById(id);
   if (!existing) throw new Error('Coupon not found');
@@ -815,6 +851,7 @@ export const updateCoupon = async (id: string, data: {
     productIds,
     categoryRules,
     assignedUserId: data.assignedUserId,
+    requiresGrant: data.requiresGrant,
   });
 
   return coupon ? formatCouponResponse(coupon) : null;
@@ -827,6 +864,124 @@ export const deactivateCoupon = async (id: string) => {
   return coupon ? formatCouponResponse(coupon) : null;
 };
 
+export const sendCouponToUsers = async (couponId: string, userIds: string[]) => {
+  const coupon = await reducer.getCouponById(couponId);
+  if (!coupon) throw new Error('Coupon not found');
+  if (!coupon.isActive) throw new Error('Cannot send a deactivated coupon');
+  if (!coupon.requiresGrant) {
+    throw new Error('This coupon does not require grants. Enable "One-time per user" first.');
+  }
+  if (coupon.expiresAt && new Date() > coupon.expiresAt) {
+    throw new Error('This coupon has expired');
+  }
+
+  const uniqueUserIds = [...new Set(userIds)];
+  if (uniqueUserIds.length === 0) throw new Error('At least one user is required');
+
+  const users = await reducer.getUsersByIds(uniqueUserIds);
+  if (users.length !== uniqueUserIds.length) {
+    throw new Error('One or more users were not found');
+  }
+
+  const usersById = new Map(users.map((u) => [u.id, u]));
+  const grantResults = await reducer.createCouponGrants(couponId, uniqueUserIds);
+
+  const results: Array<{
+    userId: string;
+    name: string | null;
+    phoneNumber: string | null;
+    grantId: string;
+    alreadyActive: boolean;
+    whatsapp: 'queued' | 'no_phone' | 'skipped_existing';
+  }> = [];
+
+  for (const { grant, alreadyActive } of grantResults) {
+    const user = usersById.get(grant.userId)!;
+    const phone = user.phoneNumber?.trim() || '';
+
+    let whatsapp: 'queued' | 'no_phone' | 'skipped_existing' = 'queued';
+
+    if (alreadyActive) {
+      whatsapp = 'skipped_existing';
+    } else if (!phone) {
+      whatsapp = 'no_phone';
+    } else {
+      const discountLabel =
+        coupon.discountType === DiscountType.PERCENTAGE
+          ? `${Number(coupon.discountValue)}% off`
+          : `₹${Number(coupon.discountValue).toLocaleString('en-IN')} off`;
+
+      await WhatsAppService.queueNotification({
+        type: 'COUPON_GRANT',
+        recipientPhone: phone,
+        message: WhatsAppMessages.couponGrant({
+          code: coupon.code,
+          discountLabel,
+          expiresAt: coupon.expiresAt,
+          userName: user.name,
+        }),
+        referenceId: grant.id,
+      });
+    }
+
+    results.push({
+      userId: user.id,
+      name: user.name,
+      phoneNumber: phone || null,
+      grantId: grant.id,
+      alreadyActive,
+      whatsapp,
+    });
+  }
+
+  return {
+    coupon: formatCouponResponse(coupon),
+    results,
+    summary: {
+      total: results.length,
+      newlyGranted: results.filter((r) => !r.alreadyActive).length,
+      alreadyActive: results.filter((r) => r.alreadyActive).length,
+      whatsappQueued: results.filter((r) => r.whatsapp === 'queued').length,
+      noPhone: results.filter((r) => r.whatsapp === 'no_phone').length,
+    },
+  };
+};
+
+export const getCouponGrants = async (couponId: string) => {
+  const coupon = await reducer.getCouponById(couponId);
+  if (!coupon) throw new Error('Coupon not found');
+
+  const grants = await reducer.getCouponGrants(couponId);
+  return grants.map((g) => ({
+    id: g.id,
+    couponId: g.couponId,
+    userId: g.userId,
+    status: g.status,
+    grantedAt: g.grantedAt,
+    redeemedAt: g.redeemedAt,
+    orderId: g.orderId,
+    user: g.user,
+  }));
+};
+
+export const revokeCouponGrant = async (grantId: string) => {
+  const grant = await reducer.getCouponGrantById(grantId);
+  if (!grant) throw new Error('Grant not found');
+  if (grant.status === 'REDEEMED') {
+    throw new Error('Cannot revoke a grant that has already been redeemed');
+  }
+  if (grant.status === 'REVOKED') {
+    throw new Error('This grant is already revoked');
+  }
+
+  const updated = await reducer.revokeCouponGrant(grantId);
+  if (updated.count === 0) {
+    throw new Error('Grant could not be revoked');
+  }
+
+  return { id: grantId, status: 'REVOKED' as const };
+};
+
 export const getMyCoupons = async (userId: string) => {
   const coupons = await reducer.getUserCoupons(userId);
   return coupons.map(formatCouponResponse);
@@ -836,7 +991,7 @@ export const validateCouponForUser = async (couponCode: string, userId: string) 
   const coupon = await reducer.getCouponByCode(couponCode.toUpperCase());
 
   if (!coupon) throw new Error('Coupon not found or invalid');
-  assertCouponEligibleForUser(coupon, userId);
+  await assertCouponEligibleForUser(coupon, userId);
 
   const applicableProducts =
     coupon.productScope === CouponProductScope.SPECIFIC
@@ -859,6 +1014,7 @@ export const validateCouponForUser = async (couponCode: string, userId: string) 
     usesRemaining: number;
     expiresAt: Date | null;
     productScope: CouponProductScope;
+    requiresGrant: boolean;
     applicableProducts: { id: string; name: string }[];
     applicableCategories: {
       categoryId: string;
@@ -874,6 +1030,7 @@ export const validateCouponForUser = async (couponCode: string, userId: string) 
     usesRemaining: coupon.maxUses - coupon.usedCount,
     expiresAt: coupon.expiresAt,
     productScope: coupon.productScope,
+    requiresGrant: coupon.requiresGrant,
     applicableProducts,
     applicableCategories,
   };

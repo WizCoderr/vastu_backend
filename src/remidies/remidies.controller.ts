@@ -21,12 +21,15 @@ import {
   updateCouponSchema,
   couponIdParamSchema,
   validateCouponSchema,
+  sendCouponSchema,
+  grantIdParamSchema,
   createBulkTierSchema,
   updateBulkTierSchema,
   bulkTierIdParamSchema,
   adjustStockSchema,
   setOpeningCostSchema,
   stockHistoryQuerySchema,
+  deleteStockMovementsSchema,
   updateStockSettingsSchema,
   quickSaleSchema,
   updateCashSaleSchema,
@@ -500,6 +503,15 @@ export const getProductStockHistory: RequestHandler = async (req, res, next) => 
   } catch (error) { next(error); }
 };
 
+export const deleteProductStockMovements: RequestHandler = async (req: AuthRequest, res, next) => {
+  try {
+    const { id } = deleteStockMovementsSchema.parse(req).params;
+    const { movementIds } = deleteStockMovementsSchema.parse(req).body;
+    const result = await intent.deleteProductStockMovements(id, movementIds, req.user!.userId);
+    res.status(200).json({ success: true, data: result });
+  } catch (error) { next(error); }
+};
+
 export const getStockSettings: RequestHandler = async (_req, res, next) => {
   try {
     const settings = await intent.getStockSettings();
@@ -558,6 +570,31 @@ export const deactivateCoupon: RequestHandler = async (req, res, next) => {
     const { id } = couponIdParamSchema.parse(req).params;
     await intent.deactivateCoupon(id);
     res.status(200).json({ success: true, message: 'Coupon deactivated' });
+  } catch (error) { next(error); }
+};
+
+export const sendCoupon: RequestHandler = async (req, res, next) => {
+  try {
+    const { id } = sendCouponSchema.parse(req).params;
+    const { userIds } = sendCouponSchema.parse(req).body;
+    const result = await intent.sendCouponToUsers(id, userIds);
+    res.status(200).json({ success: true, data: result });
+  } catch (error) { next(error); }
+};
+
+export const getCouponGrants: RequestHandler = async (req, res, next) => {
+  try {
+    const { id } = couponIdParamSchema.parse(req).params;
+    const grants = await intent.getCouponGrants(id);
+    res.status(200).json({ success: true, data: grants });
+  } catch (error) { next(error); }
+};
+
+export const revokeCouponGrant: RequestHandler = async (req, res, next) => {
+  try {
+    const { grantId } = grantIdParamSchema.parse(req).params;
+    const result = await intent.revokeCouponGrant(grantId);
+    res.status(200).json({ success: true, data: result });
   } catch (error) { next(error); }
 };
 

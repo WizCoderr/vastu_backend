@@ -264,6 +264,7 @@ export const createCouponSchema = z.object({
       productIds: z.array(idSchema).min(1).optional(),
       categoryRules: z.array(categoryRuleSchema).min(1).optional(),
       isActive: z.boolean().optional(),
+      requiresGrant: z.boolean().optional(),
     })
     .superRefine((data, ctx) => couponScopeRefinement(data, ctx, 'create')),
 });
@@ -280,8 +281,20 @@ export const updateCouponSchema = z.object({
       productIds: z.array(idSchema).min(1).optional(),
       categoryRules: z.array(categoryRuleSchema).min(1).optional(),
       assignedUserId: idSchema.nullable().optional(),
+      requiresGrant: z.boolean().optional(),
     })
     .superRefine((data, ctx) => couponScopeRefinement(data, ctx, 'update')),
+});
+
+export const sendCouponSchema = z.object({
+  params: z.object({ id: idSchema }),
+  body: z.object({
+    userIds: z.array(idSchema).min(1, 'At least one user is required'),
+  }),
+});
+
+export const grantIdParamSchema = z.object({
+  params: z.object({ grantId: idSchema }),
 });
 
 export const couponIdParamSchema = z.object({
@@ -355,6 +368,13 @@ export const stockHistoryQuerySchema = z.object({
   query: z.object({
     page: z.string().regex(/^\d+$/).optional().transform(Number),
     limit: z.string().regex(/^\d+$/).optional().transform(Number),
+  }),
+});
+
+export const deleteStockMovementsSchema = z.object({
+  params: z.object({ id: idSchema }),
+  body: z.object({
+    movementIds: z.array(z.string().uuid('Invalid movement ID')).min(1, 'At least one movement is required'),
   }),
 });
 

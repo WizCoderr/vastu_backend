@@ -9,63 +9,9 @@
  */
 import 'dotenv/config';
 import { prisma } from '../src/core/prisma';
-import {
-  applyInbound,
-  applyOutbound,
-  applyRestore,
-  deriveAverageCost,
-  round2,
-  type InventoryState,
-} from '../src/stock/wac';
+import { replayMovements } from '../src/stock/replay';
 
 const APPLY = process.argv.includes('--apply');
-
-function replayMovements(
-  movements: { type: string; quantityChange: number; unitCost: number | null }[],
-): { state: InventoryState; ok: boolean; reason?: string } {
-  let state: InventoryState = { stock: 0, inventoryValue: 0, purchasePrice: null };
-
-  for (const m of movements) {
-    const qty = m.quantityChange;
-    const unitCost = m.unitCost;
-
-    if (qty > 0) {
-      if (unitCost == null) {
-        return { state, ok: false, reason: 'inbound without unitCost' };
-      }
-      // ORDER positives are stock restores; other inbound types are purchases
-      state =
-        m.type === 'ORDER'
-          ? applyRestore(state, qty, unitCost)
-          : applyInbound(state, qty, unitCost);
-      continue;
-    }
-
-    if (qty < 0) {
-      const { state: next } = applyOutbound(state, Math.abs(qty));
-      state = next;
-      continue;
-    }
-
-    // qty === 0: opening-cost marker
-    if (unitCost != null && state.stock > 0 && state.inventoryValue <= 0) {
-      state = {
-        stock: state.stock,
-        inventoryValue: round2(state.stock * unitCost),
-        purchasePrice: unitCost,
-      };
-    }
-  }
-
-  const avg = deriveAverageCost(state.stock, state.inventoryValue);
-  return {
-    ok: true,
-    state: {
-      ...state,
-      purchasePrice: avg ?? state.purchasePrice,
-    },
-  };
-}
 
 async function main() {
   const products = await prisma.product.findMany({

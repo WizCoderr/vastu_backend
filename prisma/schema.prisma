@@ -34,6 +34,7 @@ model User {
   enrolledCourseIds String[]
 
   assignedCoupons Coupon[] @relation("UserCoupons")
+  couponGrants    CouponGrant[]
 }
 
 model PasswordResetToken {
@@ -420,17 +421,19 @@ enum StockMovementType {
 }
 
 model StockMovement {
-  id             String            @id @default(uuid())
-  productId      String
-  type           StockMovementType
-  quantityChange Int
-  previousStock  Int
-  newStock       Int
-  reason         String?
-  referenceId    String?
-  createdBy      String?
-  unitCost       Decimal?          @db.Decimal(10, 2)
-  createdAt      DateTime          @default(now())
+  id              String            @id @default(uuid())
+  productId       String
+  type            StockMovementType
+  quantityChange  Int
+  previousStock   Int
+  newStock        Int
+  reason          String?
+  referenceId     String?
+  createdBy       String?
+  unitCost        Decimal?          @db.Decimal(10, 2)
+  previousAvgCost Decimal?          @db.Decimal(10, 2)
+  newAvgCost      Decimal?          @db.Decimal(10, 2)
+  createdAt       DateTime          @default(now())
 
   product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
 
@@ -443,6 +446,7 @@ enum WhatsAppNotificationType {
   LOW_STOCK
   ORDER_CONFIRMATION
   ORDER_STATUS
+  COUPON_GRANT
 }
 
 enum WhatsAppNotificationStatus {
@@ -565,6 +569,12 @@ enum CouponProductScope {
   CATEGORY
 }
 
+enum CouponGrantStatus {
+  ACTIVE
+  REDEEMED
+  REVOKED
+}
+
 model Coupon {
   id            String       @id @default(uuid())
   code          String       @unique
@@ -575,6 +585,7 @@ model Coupon {
   expiresAt     DateTime?
   isActive      Boolean      @default(true)
   productScope  CouponProductScope @default(ALL)
+  requiresGrant Boolean      @default(false)
 
   assignedUserId String?
   assignedUser   User?        @relation("UserCoupons", fields: [assignedUserId], references: [id], onDelete: Cascade)
@@ -583,12 +594,30 @@ model Coupon {
   usages     CouponUsage[]
   products   CouponProduct[]
   categories CouponCategory[]
+  grants     CouponGrant[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@index([code])
   @@index([assignedUserId])
+}
+
+model CouponGrant {
+  id         String            @id @default(uuid())
+  couponId   String
+  userId     String
+  status     CouponGrantStatus @default(ACTIVE)
+  grantedAt  DateTime          @default(now())
+  redeemedAt DateTime?
+  orderId    String?
+
+  coupon Coupon @relation(fields: [couponId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([couponId, userId, status])
+  @@index([userId, status])
+  @@index([orderId])
 }
 
 model CouponProduct {

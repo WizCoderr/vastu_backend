@@ -208,6 +208,7 @@ export const createOrderWithTransaction = async (
     totalAmount: number;
     appliedCouponId: string | null;
     couponMaxUses: number | null;
+    appliedGrantId?: string | null;
   },
   shippingDetails: {
     shippingName: string;
@@ -294,6 +295,22 @@ export const createOrderWithTransaction = async (
       await tx.couponUsage.create({
         data: { couponId: breakdown.appliedCouponId, orderId: order.id, userId },
       });
+
+      // Consume grant atomically if this was a grant-required coupon
+      if (breakdown.appliedGrantId) {
+        const grantUpdated = await tx.couponGrant.updateMany({
+          where: { id: breakdown.appliedGrantId, status: 'ACTIVE' },
+          data: {
+            status: 'REDEEMED',
+            redeemedAt: new Date(),
+            orderId: order.id,
+          },
+        });
+
+        if (grantUpdated.count === 0) {
+          throw new Error('This coupon grant has already been used or revoked');
+        }
+      }
     }
 
     // 5. Create pending Payment record for the Order
@@ -410,6 +427,7 @@ export const createCoupon = async (data: {
   expiresAt: Date | null;
   assignedUserId: string | null;
   productScope: CouponProductScope;
+  requiresGrant?: boolean;
   isActive?: boolean;
   productIds?: string[];
   categoryRules?: CouponCategoryRuleInput[];
@@ -489,6 +507,7 @@ export const updateCoupon = async (id: string, data: {
   productIds?: string[];
   categoryRules?: CouponCategoryRuleInput[];
   assignedUserId?: string | null;
+  requiresGrant?: boolean;
 }) => {
   const { productIds, categoryRules, ...couponData } = data;
 
@@ -556,10 +575,90 @@ export const getUserCoupons = async (userId: string) => {
   return prisma.coupon.findMany({
     where: {
       isActive: true,
-      OR: [{ assignedUserId: userId }, { assignedUserId: null }],
+      OR: [
+        // Public coupons (no assignment, no grant required)
+        { assignedUserId: null, requiresGrant: false },
+        // Directly assigned to this user (legacy personal coupons)
+        { assignedUserId: userId, requiresGrant: false },
+        // Grant-required coupons where user has an ACTIVE grant
+        {
+          requiresGrant: true,
+          grants: { some: { userId, status: 'ACTIVE' } },
+        },
+      ],
     },
     include: couponProductsInclude,
     orderBy: { createdAt: 'desc' },
+  });
+};
+
+export const getActiveGrantForUser = async (couponId: string, userId: string) => {
+  return prisma.couponGrant.findFirst({
+    where: { couponId, userId, status: 'ACTIVE' },
+    orderBy: { grantedAt: 'asc' },
+  });
+};
+
+export const getAnyGrantForUser = async (couponId: string, userId: string) => {
+  return prisma.couponGrant.findFirst({
+    where: { couponId, userId },
+    orderBy: { grantedAt: 'desc' },
+  });
+};
+
+export const createCouponGrants = async (couponId: string, userIds: string[]) => {
+  const uniqueUserIds = [...new Set(userIds)];
+  const created = [];
+
+  for (const userId of uniqueUserIds) {
+    const existingActive = await prisma.couponGrant.findFirst({
+      where: { couponId, userId, status: 'ACTIVE' },
+    });
+    if (existingActive) {
+      created.push({ grant: existingActive, alreadyActive: true as const });
+      continue;
+    }
+
+    const grant = await prisma.couponGrant.create({
+      data: { couponId, userId, status: 'ACTIVE' },
+    });
+    created.push({ grant, alreadyActive: false as const });
+  }
+
+  return created;
+};
+
+export const getCouponGrants = async (couponId: string) => {
+  return prisma.couponGrant.findMany({
+    where: { couponId },
+    include: {
+      user: { select: { id: true, name: true, email: true, phoneNumber: true } },
+    },
+    orderBy: { grantedAt: 'desc' },
+  });
+};
+
+export const getCouponGrantById = async (grantId: string) => {
+  return prisma.couponGrant.findUnique({
+    where: { id: grantId },
+    include: {
+      user: { select: { id: true, name: true, email: true, phoneNumber: true } },
+      coupon: true,
+    },
+  });
+};
+
+export const revokeCouponGrant = async (grantId: string) => {
+  return prisma.couponGrant.updateMany({
+    where: { id: grantId, status: 'ACTIVE' },
+    data: { status: 'REVOKED' },
+  });
+};
+
+export const getUsersByIds = async (userIds: string[]) => {
+  return prisma.user.findMany({
+    where: { id: { in: userIds } },
+    select: { id: true, name: true, email: true, phoneNumber: true },
   });
 };
 

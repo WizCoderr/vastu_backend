@@ -41,4 +41,20 @@ export const WhatsAppMessages = {
     const label = params.status.replace('_', ' ');
     return `Your order #${shortId(params.orderId)} is now ${label}.`;
   },
+
+  couponGrant(params: {
+    code: string;
+    discountLabel: string;
+    expiresAt: Date | null;
+    userName?: string | null;
+  }): string {
+    const greeting = params.userName ? `Hi ${params.userName}! ` : '';
+    const expiry = params.expiresAt
+      ? ` Valid until ${params.expiresAt.toLocaleDateString('en-IN')}.`
+      : '';
+    return (
+      `${greeting}You've received a one-time coupon: *${params.code}* — ${params.discountLabel}.` +
+      `${expiry} Use it once at checkout in the app. To use it again, we'll need to send it to you once more.`
+    );
+  },
 };
