@@ -698,6 +698,9 @@ export const deleteBulkTier = async (id: string) => {
 
 // --- QUICK CASH SALE (POS) ---
 
+/** Remote/pooled DB round-trips make multi-step POS txs exceed Prisma's 5s default. */
+const CASH_SALE_TX = { timeout: 20_000, maxWait: 10_000 } as const;
+
 export const createQuickSale = async (params: {
   items:        { productId: string; quantity: number; price?: number }[];
   shippingCost: number;
@@ -709,6 +712,18 @@ export const createQuickSale = async (params: {
   customerState?: string;
 }) => {
   return prisma.$transaction(async (tx) => {
+    const productIds = [...new Set(params.items.map((i) => i.productId))];
+    const [products, settings] = await Promise.all([
+      tx.product.findMany({ where: { id: { in: productIds } } }),
+      tx.stockSettings.findUnique({ where: { id: 'default' } }),
+    ]);
+    const productById = new Map(products.map((p) => [p.id, p]));
+
+    const qtyByProduct = new Map<string, number>();
+    for (const item of params.items) {
+      qtyByProduct.set(item.productId, (qtyByProduct.get(item.productId) ?? 0) + item.quantity);
+    }
+
     const lineItems: {
       productId: string;
       quantity: number;
@@ -718,9 +733,10 @@ export const createQuickSale = async (params: {
     }[] = [];
 
     for (const item of params.items) {
-      const product = await tx.product.findUnique({ where: { id: item.productId } });
+      const product = productById.get(item.productId);
       if (!product) throw new Error(`Product not found: ${item.productId}`);
-      if (product.stock < item.quantity)
+      const needed = qtyByProduct.get(item.productId) ?? item.quantity;
+      if (product.stock < needed)
         throw new Error(`Insufficient stock for ${product.name} (${product.stock} available)`);
 
       lineItems.push({
@@ -748,6 +764,15 @@ export const createQuickSale = async (params: {
         shippingCity:    params.customerCity?.trim() || 'N/A',
         shippingState:   params.customerState?.trim() || 'N/A',
         shippingPostal:  '000000',
+        payment: {
+          create: {
+            userId:   params.adminUserId,
+            type:     PaymentType.PRODUCT,
+            amount:   totalAmount,
+            status:   PaymentStatus.COMPLETED,
+            provider: PaymentProvider.CASH,
+          },
+        },
         items: {
           create: lineItems.map((item) => ({
             productId: item.productId,
@@ -757,16 +782,9 @@ export const createQuickSale = async (params: {
           })),
         },
       },
-    });
-
-    await tx.payment.create({
-      data: {
-        userId:   params.adminUserId,
-        orderId:  order.id,
-        type:     PaymentType.PRODUCT,
-        amount:   totalAmount,
-        status:   PaymentStatus.COMPLETED,
-        provider: PaymentProvider.CASH,
+      include: {
+        items:   { include: { product: true } },
+        payment: true,
       },
     });
 
@@ -777,34 +795,34 @@ export const createQuickSale = async (params: {
       productName:   string;
     }[] = [];
 
-    for (const item of lineItems) {
+    // Deduplicate stock decrements when the same product appears on multiple lines
+    for (const [productId, quantity] of qtyByProduct) {
       const change = await StockService.recordStockChange(tx, {
-        productId:      item.productId,
-        quantityChange: -item.quantity,
+        productId,
+        quantityChange: -quantity,
         type:           StockMovementType.ORDER,
         reason:         'Quick cash sale (POS)',
         referenceId:    order.id,
         createdBy:      params.adminUserId,
+        settings,
       });
       stockChanges.push({
-        productId:     item.productId,
+        productId,
         previousStock: change.previousStock,
         newStock:      change.newStock,
-        productName:   item.name,
+        productName:   productById.get(productId)?.name ?? change.productName,
       });
     }
 
-    // Re-fetch so payment relation is populated after create
-    const orderWithPayment = await tx.order.findUniqueOrThrow({
-      where:   { id: order.id },
-      include: {
-        items:   { include: { product: true } },
-        payment: true,
-      },
-    });
+    // Reflect post-sale stock on the already-loaded order payload (avoids a refetch).
+    const newStockById = new Map(stockChanges.map((c) => [c.productId, c.newStock]));
+    for (const item of order.items) {
+      const next = newStockById.get(item.productId);
+      if (next != null && item.product) item.product.stock = next;
+    }
 
-    return { order: orderWithPayment, stockChanges };
-  });
+    return { order, stockChanges };
+  }, CASH_SALE_TX);
 };
 
 export const updateCashSale = async (params: {
@@ -860,10 +878,16 @@ export const updateCashSale = async (params: {
       );
     }
 
-    const allProductIds = new Set([
+    const allProductIds = [...new Set([
       ...oldQtyByProduct.keys(),
       ...newQtyByProduct.keys(),
+    ])];
+
+    const [products, settings] = await Promise.all([
+      tx.product.findMany({ where: { id: { in: allProductIds } } }),
+      tx.stockSettings.findUnique({ where: { id: 'default' } }),
     ]);
+    const productById = new Map(products.map((p) => [p.id, p]));
 
     const lineItems: {
       productId: string;
@@ -874,7 +898,7 @@ export const updateCashSale = async (params: {
     }[] = [];
 
     for (const productId of allProductIds) {
-      const product = await tx.product.findUnique({ where: { id: productId } });
+      const product = productById.get(productId);
       if (!product) throw new Error(`Product not found: ${productId}`);
 
       const oldQty = oldQtyByProduct.get(productId) ?? 0;
@@ -886,7 +910,7 @@ export const updateCashSale = async (params: {
     }
 
     for (const item of params.items) {
-      const product = await tx.product.findUnique({ where: { id: item.productId } });
+      const product = productById.get(item.productId);
       if (!product) throw new Error(`Product not found: ${item.productId}`);
 
       const oldQty = oldQtyByProduct.get(item.productId) ?? 0;
@@ -940,12 +964,10 @@ export const updateCashSale = async (params: {
             unitCostAtSale: item.unitCostAtSale,
           })),
         },
+        payment: {
+          update: { amount: totalAmount },
+        },
       },
-    });
-
-    await tx.payment.update({
-      where: { orderId: params.orderId },
-      data: { amount: totalAmount },
     });
 
     const stockChanges: {
@@ -961,7 +983,7 @@ export const updateCashSale = async (params: {
       const delta = newQty - oldQty;
       if (delta === 0) continue;
 
-      const product = await tx.product.findUnique({ where: { id: productId } });
+      const product = productById.get(productId);
       if (!product) continue;
 
       const change = await StockService.recordStockChange(tx, {
@@ -971,12 +993,13 @@ export const updateCashSale = async (params: {
         reason: 'Cash bill updated',
         referenceId: params.orderId,
         createdBy: params.adminUserId,
+        settings,
         ...(delta < 0
           ? {
               unitCost: (() => {
                 const entry = oldCostByProduct.get(productId);
                 if (entry && entry.qty > 0) return Math.round((entry.totalCost / entry.qty) * 100) / 100;
-                return StockService.getCostAtSale(product!) ?? undefined;
+                return StockService.getCostAtSale(product) ?? undefined;
               })(),
               updateLastPurchasePrice: false,
             }
@@ -999,7 +1022,7 @@ export const updateCashSale = async (params: {
     });
 
     return { order: orderWithPayment, stockChanges };
-  });
+  }, CASH_SALE_TX);
 };
 
 export const deleteCashSale = async (params: {
@@ -1046,9 +1069,16 @@ export const deleteCashSale = async (params: {
       }
     }
 
+    const productIds = [...qtyByProduct.keys()];
+    const [products, settings] = await Promise.all([
+      tx.product.findMany({ where: { id: { in: productIds } } }),
+      tx.stockSettings.findUnique({ where: { id: 'default' } }),
+    ]);
+    const productById = new Map(products.map((p) => [p.id, p]));
+
     for (const [productId, { quantity, unitCost }] of qtyByProduct) {
       if (quantity <= 0) continue;
-      const product = await tx.product.findUnique({ where: { id: productId } });
+      const product = productById.get(productId);
       if (!product) continue;
 
       const change = await StockService.recordStockChange(tx, {
@@ -1060,6 +1090,7 @@ export const deleteCashSale = async (params: {
         createdBy: params.adminUserId,
         unitCost: unitCost ?? StockService.getCostAtSale(product) ?? undefined,
         updateLastPurchasePrice: false,
+        settings,
       });
       stockChanges.push({
         productId,
@@ -1073,7 +1104,7 @@ export const deleteCashSale = async (params: {
     await tx.order.delete({ where: { id: params.orderId } });
 
     return { stockChanges };
-  });
+  }, CASH_SALE_TX);
 };
 
 // --- DASHBOARD STATS ---

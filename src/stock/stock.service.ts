@@ -54,6 +54,8 @@ export class StockService {
       createdBy?: string;
       unitCost?: number;
       updateLastPurchasePrice?: boolean;
+      /** Pass once per outer transaction to avoid N stockSettings round-trips. */
+      settings?: { globalLowStockThreshold: number } | null;
     },
   ): Promise<{ previousStock: number; newStock: number; productName: string }> {
     const product = await tx.product.findUnique({
@@ -80,8 +82,16 @@ export class StockService {
       throw new Error(`Insufficient stock for product ${product.name}`);
     }
 
-    const settings = await tx.stockSettings.findUnique({ where: { id: 'default' } });
-    const threshold = await this.getEffectiveThreshold(product, settings ?? undefined);
+    const settings =
+      params.settings !== undefined
+        ? params.settings
+        : await tx.stockSettings.findUnique({ where: { id: 'default' } });
+    // Resolve threshold in-process — never call ensureSettings() inside a tx
+    // (that would hit the outer client and add latency / risk timeout).
+    const threshold =
+      product.lowStockThreshold ??
+      settings?.globalLowStockThreshold ??
+      config.stock.defaultLowStockThreshold;
 
     const currentValue = Number(product.inventoryValue);
     const currentAvg = product.purchasePrice != null ? Number(product.purchasePrice) : null;
