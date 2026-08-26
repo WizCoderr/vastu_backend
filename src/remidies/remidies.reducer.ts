@@ -1,4 +1,4 @@
-import { prisma } from '../core/prisma';
+import { prisma, INTERACTIVE_TX } from '../core/prisma';
 import { OrderStatus, PaymentStatus, PaymentType, PaymentProvider, DiscountType, BulkTierType, StockMovementType, CouponProductScope } from '../generated/prisma/client';
 import { StockService } from '../stock/stock.service';
 import { slugify } from '../utils/slugify';
@@ -96,7 +96,7 @@ export const createProduct = async (data: {
       where: { id: product.id },
       include: { category: true },
     });
-  });
+  }, INTERACTIVE_TX);
 };
 
 export const updateProduct = async (productId: string, data: Partial<Parameters<typeof createProduct>[0]>) => {
@@ -335,7 +335,7 @@ export const createOrderWithTransaction = async (
     }
 
     return { order, payment, breakdown, stockChanges };
-  });
+  }, INTERACTIVE_TX);
 };
 
 export const getUserOrders = async (userId: string) => {
@@ -699,7 +699,7 @@ export const deleteBulkTier = async (id: string) => {
 // --- QUICK CASH SALE (POS) ---
 
 /** Remote/pooled DB round-trips make multi-step POS txs exceed Prisma's 5s default. */
-const CASH_SALE_TX = { timeout: 20_000, maxWait: 10_000 } as const;
+const CASH_SALE_TX = INTERACTIVE_TX;
 
 export const createQuickSale = async (params: {
   items:        { productId: string; quantity: number; price?: number }[];

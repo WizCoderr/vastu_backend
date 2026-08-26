@@ -1,6 +1,6 @@
 import { Prisma } from '../generated/prisma/client';
 import { StockMovementType } from '../generated/prisma/client';
-import { prisma } from '../core/prisma';
+import { prisma, INTERACTIVE_TX } from '../core/prisma';
 import { config } from '../core/config';
 import logger from '../utils/logger';
 import { WhatsAppService } from '../notification/whatsapp.service';
@@ -210,7 +210,7 @@ export class StockService {
         where: { id: productId },
         include: { category: true },
       });
-    });
+    }, INTERACTIVE_TX);
 
     return {
       ...updated,
@@ -332,7 +332,7 @@ export class StockService {
       });
 
       return { ...change, product };
-    });
+    }, INTERACTIVE_TX);
 
     await this.checkAndQueueLowStockAlert(
       productId,
@@ -466,7 +466,7 @@ export class StockService {
       });
 
       return updated;
-    });
+    }, INTERACTIVE_TX);
 
     await this.checkAndQueueLowStockAlert(productId, previousStock, newStock, product.name);
 
@@ -501,17 +501,19 @@ export class StockService {
       const restoreCost =
         item.unitCost ?? (product?.purchasePrice != null ? Number(product.purchasePrice) : undefined);
 
-      const result = await prisma.$transaction(async (tx) =>
-        this.recordStockChange(tx, {
-          productId: item.productId,
-          quantityChange: item.quantity,
-          type: StockMovementType.RESTOCK,
-          reason,
-          referenceId: orderId,
-          createdBy: adminUserId,
-          unitCost: restoreCost,
-          updateLastPurchasePrice: false,
-        }),
+      const result = await prisma.$transaction(
+        async (tx) =>
+          this.recordStockChange(tx, {
+            productId: item.productId,
+            quantityChange: item.quantity,
+            type: StockMovementType.RESTOCK,
+            reason,
+            referenceId: orderId,
+            createdBy: adminUserId,
+            unitCost: restoreCost,
+            updateLastPurchasePrice: false,
+          }),
+        INTERACTIVE_TX,
       );
 
       await this.checkAndQueueLowStockAlert(
