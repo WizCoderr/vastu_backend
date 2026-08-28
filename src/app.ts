@@ -94,7 +94,11 @@ app.use((err: any, req: Request, res: Response, next: NextFunction) => {
       message.startsWith('Insufficient stock') ||
       message.startsWith('Unit purchase cost') ||
       message.startsWith('Set opening unit cost') ||
-      message.startsWith('Opening cost'));
+      message.startsWith('Opening cost') ||
+      message.startsWith('Coupon') ||
+      message.startsWith('This coupon') ||
+      message.startsWith('You have already used this coupon') ||
+      message.startsWith('No registered user'));
 
   res.status(isClientError ? 400 : 500).json({
     success: false,

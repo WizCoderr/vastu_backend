@@ -682,7 +682,7 @@ export const createCouponGrants = async (couponId: string, userIds: string[]) =>
   const uniqueUserIds = [...new Set(userIds)];
   const created = [];
 
-  for (const userId of userIds) {
+  for (const userId of uniqueUserIds) {
     const existingActive = await prisma.couponGrant.findFirst({
       where: { couponId, userId, status: 'ACTIVE' },
     });
@@ -765,6 +765,13 @@ export const revokeCouponGrant = async (grantId: string) => {
   return prisma.couponGrant.updateMany({
     where: { id: grantId, status: 'ACTIVE' },
     data: { status: 'REVOKED' },
+  });
+};
+
+export const getUserById = async (userId: string) => {
+  return prisma.user.findUnique({
+    where: { id: userId },
+    select: { id: true, name: true, email: true, phoneNumber: true },
   });
 };
 

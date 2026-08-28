@@ -414,9 +414,6 @@ const assertCouponEligibleForUser = async (
   if (coupon.requiresGrant) {
     const activeGrant = await reducer.resolveActiveGrantForUser(coupon.id, userId, phoneHint);
     if (activeGrant) {
-      if (coupon.maxUses > 0 && coupon.usedCount >= coupon.maxUses) {
-        throw new Error('This coupon has reached its maximum usage limit');
-      }
       return activeGrant.id;
     }
 
@@ -426,8 +423,12 @@ const assertCouponEligibleForUser = async (
         'You have already used this coupon. Ask us to send it to you again to use it once more.'
       );
     }
+
+    const profile = await reducer.getUserById(userId);
+    const profilePhone = profile?.phoneNumber?.trim() || 'not set';
     throw new Error(
-      'This coupon must be shared to your account first. Ask admin to share it to your registered mobile number, then try again.'
+      `This coupon must be shared to your account first. Your registered phone is ${profilePhone}. ` +
+        `Ask admin to Share it to that number in Coupons, then apply again.`
     );
   }
 
