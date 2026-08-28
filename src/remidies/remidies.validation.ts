@@ -324,6 +324,7 @@ export const couponIdParamSchema = z.object({
 export const validateCouponSchema = z.object({
   body: z.object({
     couponCode: z.string().min(1, 'Coupon code is required'),
+    phoneNumber: z.string().min(8).max(20).optional(),
   }),
 });
 

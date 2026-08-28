@@ -623,8 +623,8 @@ export const getMyCoupons: RequestHandler = async (req: AuthRequest, res, next) 
 export const validateCoupon: RequestHandler = async (req: AuthRequest, res, next) => {
   try {
     const userId = req.user!.userId;
-    const { couponCode } = validateCouponSchema.parse(req).body;
-    const result = await intent.validateCouponForUser(couponCode, userId);
+    const { couponCode, phoneNumber } = validateCouponSchema.parse(req).body;
+    const result = await intent.validateCouponForUser(couponCode, userId, phoneNumber);
     res.status(200).json({ success: true, data: result });
   } catch (error) { next(error); }
 };

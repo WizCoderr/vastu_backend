@@ -400,7 +400,8 @@ const computeCouponDiscount = (
 
 const assertCouponEligibleForUser = async (
   coupon: NonNullable<CouponWithProducts> & { requiresGrant?: boolean },
-  userId: string
+  userId: string,
+  phoneHint?: string | null,
 ): Promise<string | null> => {
   if (!coupon.isActive) throw new Error('This coupon has been deactivated');
   if (coupon.assignedUserId && coupon.assignedUserId !== userId) {
@@ -409,13 +410,15 @@ const assertCouponEligibleForUser = async (
   if (coupon.expiresAt && new Date() > coupon.expiresAt) {
     throw new Error('This coupon has expired');
   }
-  if (coupon.usedCount >= coupon.maxUses) {
-    throw new Error('This coupon has reached its maximum usage limit');
-  }
 
   if (coupon.requiresGrant) {
-    const activeGrant = await reducer.getActiveGrantForUser(coupon.id, userId);
-    if (activeGrant) return activeGrant.id;
+    const activeGrant = await reducer.resolveActiveGrantForUser(coupon.id, userId, phoneHint);
+    if (activeGrant) {
+      if (coupon.maxUses > 0 && coupon.usedCount >= coupon.maxUses) {
+        throw new Error('This coupon has reached its maximum usage limit');
+      }
+      return activeGrant.id;
+    }
 
     const anyGrant = await reducer.getAnyGrantForUser(coupon.id, userId);
     if (anyGrant?.status === 'REDEEMED') {
@@ -423,7 +426,13 @@ const assertCouponEligibleForUser = async (
         'You have already used this coupon. Ask us to send it to you again to use it once more.'
       );
     }
-    throw new Error('This coupon is not available for your account. It must be sent to you first.');
+    throw new Error(
+      'This coupon must be shared to your account first. Ask admin to share it to your registered mobile number, then try again.'
+    );
+  }
+
+  if (coupon.usedCount >= coupon.maxUses) {
+    throw new Error('This coupon has reached its maximum usage limit');
   }
 
   return null;
@@ -432,12 +441,13 @@ const assertCouponEligibleForUser = async (
 const validateCoupon = async (
   code: string,
   userId: string,
-  context: CouponCartContext
+  context: CouponCartContext,
+  phoneHint?: string | null,
 ): Promise<{ couponId: string; couponMaxUses: number; discountAmount: number; grantId: string | null }> => {
   const coupon = await reducer.getCouponByCode(code.toUpperCase());
 
   if (!coupon) throw new Error('Coupon not found or invalid');
-  const grantId = await assertCouponEligibleForUser(coupon, userId);
+  const grantId = await assertCouponEligibleForUser(coupon, userId, phoneHint);
 
   const { discountAmount } = computeCouponDiscount(coupon, context);
 
@@ -504,11 +514,16 @@ export const checkoutCart = async (
   let appliedGrantId: string | null = null;
 
   if (couponCode) {
-    const couponResult = await validateCoupon(couponCode, userId, {
-      subtotalAmount,
-      postBulkAmount,
-      cartLines,
-    });
+    const couponResult = await validateCoupon(
+      couponCode,
+      userId,
+      {
+        subtotalAmount,
+        postBulkAmount,
+        cartLines,
+      },
+      shippingDetails.shippingPhone,
+    );
     couponDiscount = couponResult.discountAmount;
     appliedCouponId = couponResult.couponId;
     couponMaxUses = couponResult.couponMaxUses;
@@ -992,7 +1007,9 @@ export const shareCouponByPhone = async (couponId: string, phoneNumber: string) 
 
   const user = await reducer.findUserByPhone(phoneNumber);
   if (!user) {
-    throw new Error('No registered user with this phone number');
+    throw new Error(
+      'No registered user with this phone number. The customer must sign up in the app with this number first.'
+    );
   }
 
   const [grantResult] = await reducer.createCouponGrants(couponId, [user.id]);
@@ -1090,11 +1107,15 @@ export const getMyCoupons = async (userId: string) => {
   return coupons.map(formatCouponResponse);
 };
 
-export const validateCouponForUser = async (couponCode: string, userId: string) => {
+export const validateCouponForUser = async (
+  couponCode: string,
+  userId: string,
+  phoneHint?: string,
+) => {
   const coupon = await reducer.getCouponByCode(couponCode.toUpperCase());
 
   if (!coupon) throw new Error('Coupon not found or invalid');
-  await assertCouponEligibleForUser(coupon, userId);
+  await assertCouponEligibleForUser(coupon, userId, phoneHint);
 
   const applicableProducts =
     coupon.productScope === CouponProductScope.SPECIFIC

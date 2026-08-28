@@ -603,6 +603,74 @@ export const getActiveGrantForUser = async (couponId: string, userId: string) =>
   });
 };
 
+const phoneSuffix = (phone: string) => {
+  const digits = phone.replace(/\D/g, '');
+  return digits.length >= 10 ? digits.slice(-10) : digits;
+};
+
+/** Resolve ACTIVE grant for this user, matching by userId or any shared phone number. */
+export const resolveActiveGrantForUser = async (
+  couponId: string,
+  userId: string,
+  phoneHint?: string | null,
+) => {
+  const direct = await getActiveGrantForUser(couponId, userId);
+  if (direct) return direct;
+
+  const currentUser = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { phoneNumber: true },
+  });
+
+  const suffixes = new Set<string>();
+  const addSuffix = (phone?: string | null) => {
+    if (!phone) return;
+    const s = phoneSuffix(phone);
+    if (s.length >= 10) suffixes.add(s);
+  };
+
+  addSuffix(phoneHint);
+  addSuffix(currentUser?.phoneNumber);
+
+  if (phoneHint) {
+    const hintedUser = await findUserByPhone(phoneHint);
+    if (hintedUser) {
+      addSuffix(hintedUser.phoneNumber);
+      const hintedGrant = await getActiveGrantForUser(couponId, hintedUser.id);
+      if (hintedGrant) {
+        return hintedGrant.userId === userId
+          ? hintedGrant
+          : prisma.couponGrant.update({
+              where: { id: hintedGrant.id },
+              data: { userId },
+            });
+      }
+    }
+  }
+
+  if (suffixes.size === 0) return null;
+
+  const activeGrants = await prisma.couponGrant.findMany({
+    where: { couponId, status: 'ACTIVE' },
+    include: { user: { select: { id: true, phoneNumber: true } } },
+    orderBy: { grantedAt: 'desc' },
+  });
+
+  for (const grant of activeGrants) {
+    const grantSuffix = phoneSuffix(grant.user.phoneNumber);
+    if (!suffixes.has(grantSuffix)) continue;
+
+    return grant.userId === userId
+      ? grant
+      : prisma.couponGrant.update({
+          where: { id: grant.id },
+          data: { userId },
+        });
+  }
+
+  return null;
+};
+
 export const getAnyGrantForUser = async (couponId: string, userId: string) => {
   return prisma.couponGrant.findFirst({
     where: { couponId, userId },
@@ -614,7 +682,7 @@ export const createCouponGrants = async (couponId: string, userIds: string[]) =>
   const uniqueUserIds = [...new Set(userIds)];
   const created = [];
 
-  for (const userId of uniqueUserIds) {
+  for (const userId of userIds) {
     const existingActive = await prisma.couponGrant.findFirst({
       where: { couponId, userId, status: 'ACTIVE' },
     });
@@ -649,19 +717,28 @@ export const findUserByPhone = async (phoneNumber: string) => {
       OR: [
         { phoneNumber: digits },
         { phoneNumber: suffix },
+        { phoneNumber: `91${suffix}` },
         { phoneNumber: { endsWith: suffix } },
       ],
     },
-    select: { id: true, name: true, email: true, phoneNumber: true },
-    take: 5,
+    select: { id: true, name: true, email: true, phoneNumber: true, createdAt: true },
+    orderBy: { createdAt: 'desc' },
+    take: 10,
   });
 
   if (users.length === 0) return null;
-  // Prefer exact / suffix match over loose endsWith collisions
-  const exact =
-    users.find((u) => u.phoneNumber.replace(/\D/g, '') === digits) ??
-    users.find((u) => u.phoneNumber.replace(/\D/g, '').endsWith(suffix));
-  return exact ?? users[0];
+
+  const normalized = (phone: string) => phone.replace(/\D/g, '');
+  const exactMatches = users.filter((u) => {
+    const stored = normalized(u.phoneNumber);
+    return stored === digits || stored.endsWith(suffix) || stored === `91${suffix}`;
+  });
+
+  if (exactMatches.length === 1) return exactMatches[0];
+  if (exactMatches.length > 1) return exactMatches[0];
+
+  if (users.length === 1) return users[0];
+  return null;
 };
 
 export const getCouponGrants = async (couponId: string) => {
