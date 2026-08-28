@@ -189,7 +189,6 @@ const sanitizePublicProduct = <T extends Record<string, unknown>>(product: T) =>
     purchasePrice,
     lastPurchasePrice,
     inventoryValue,
-    stock: _stock,
     ...rest
   } = product;
   return rest;
