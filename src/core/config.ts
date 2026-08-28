@@ -53,6 +53,7 @@ export const config = {
         adminPhone: process.env.WHATSAPP_ADMIN_PHONE || '',
         sessionPath: process.env.WHATSAPP_SESSION_PATH || '.wwebjs_auth',
         enabled: process.env.WHATSAPP_ENABLED !== 'false',
+        chromiumPath: process.env.PUPPETEER_EXECUTABLE_PATH || '/usr/bin/chromium',
     },
 
     stock: {

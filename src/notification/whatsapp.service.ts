@@ -1,4 +1,5 @@
 import { WhatsAppNotificationStatus, WhatsAppNotificationType } from '../generated/prisma/client';
+import { existsSync } from 'node:fs';
 import { prisma } from '../core/prisma';
 import { config } from '../core/config';
 import logger from '../utils/logger';
@@ -15,6 +16,22 @@ let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 let reconnectAttempt = 0;
 
 const MAX_RECONNECT_DELAY_MS = 5 * 60 * 1000;
+const CHROMIUM_CANDIDATES = [
+  config.whatsapp.chromiumPath,
+  '/usr/bin/chromium',
+  '/usr/bin/chromium-browser',
+  '/usr/bin/google-chrome-stable',
+];
+
+const resolveChromiumExecutable = (): string | undefined => {
+  for (const candidate of CHROMIUM_CANDIDATES) {
+    if (candidate && existsSync(candidate)) {
+      return candidate;
+    }
+  }
+  return config.whatsapp.chromiumPath || undefined;
+};
+
 const PUPPETEER_ARGS = [
   '--no-sandbox',
   '--disable-setuid-sandbox',
@@ -140,13 +157,18 @@ export class WhatsAppService {
     try {
       const { Client, LocalAuth } = await import('whatsapp-web.js');
 
+      const chromiumPath = resolveChromiumExecutable();
+
       const puppeteerConfig: Record<string, unknown> = {
         headless: true,
         args: PUPPETEER_ARGS,
       };
 
-      if (process.env.PUPPETEER_EXECUTABLE_PATH) {
-        puppeteerConfig.executablePath = process.env.PUPPETEER_EXECUTABLE_PATH;
+      if (chromiumPath) {
+        puppeteerConfig.executablePath = chromiumPath;
+        logger.info('WhatsAppService: Using Chromium executable', { chromiumPath });
+      } else {
+        logger.warn('WhatsAppService: No system Chromium found — Puppeteer may use bundled Chrome');
       }
 
       client = new Client({

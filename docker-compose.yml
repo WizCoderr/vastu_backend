@@ -7,6 +7,9 @@ services:
     restart: always
     env_file:
       - .env
+    environment:
+      PUPPETEER_SKIP_CHROMIUM_DOWNLOAD: "true"
+      PUPPETEER_EXECUTABLE_PATH: /usr/bin/chromium
     ports:
       - "127.0.0.1:3030:3030"
     volumes:
