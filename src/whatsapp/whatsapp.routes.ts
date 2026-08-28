@@ -8,6 +8,7 @@ router.get('/qr', ctrl.getWhatsAppQr as RequestHandler);
 router.get('/notifications/pending', ctrl.getPendingWhatsAppNotifications as RequestHandler);
 router.post('/notifications/:id/retry', ctrl.retryWhatsAppNotification as RequestHandler);
 router.post('/reconnect', ctrl.reconnectWhatsApp as RequestHandler);
+router.post('/init', ctrl.initWhatsApp as RequestHandler);
 router.post('/send-test', ctrl.sendTestNotification as RequestHandler);
 
 export default router;

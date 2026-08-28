@@ -22,6 +22,7 @@ import {
   couponIdParamSchema,
   validateCouponSchema,
   sendCouponSchema,
+  shareCouponSchema,
   grantIdParamSchema,
   createBulkTierSchema,
   updateBulkTierSchema,
@@ -578,6 +579,15 @@ export const sendCoupon: RequestHandler = async (req, res, next) => {
     const { id } = sendCouponSchema.parse(req).params;
     const { userIds } = sendCouponSchema.parse(req).body;
     const result = await intent.sendCouponToUsers(id, userIds);
+    res.status(200).json({ success: true, data: result });
+  } catch (error) { next(error); }
+};
+
+export const shareCoupon: RequestHandler = async (req, res, next) => {
+  try {
+    const { id } = shareCouponSchema.parse(req).params;
+    const { phoneNumber } = shareCouponSchema.parse(req).body;
+    const result = await intent.shareCouponByPhone(id, phoneNumber);
     res.status(200).json({ success: true, data: result });
   } catch (error) { next(error); }
 };

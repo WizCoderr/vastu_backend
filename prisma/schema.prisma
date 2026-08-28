@@ -578,6 +578,8 @@ enum CouponGrantStatus {
 model Coupon {
   id            String       @id @default(uuid())
   code          String       @unique
+  name          String?
+  description   String?
   discountType  DiscountType
   discountValue Decimal      @db.Decimal(10, 2)
   maxUses       Int

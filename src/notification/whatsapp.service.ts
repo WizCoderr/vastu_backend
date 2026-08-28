@@ -11,6 +11,43 @@ let currentQr: string | null = null;
 let connectedPhone: string | null = null;
 let initializing = false;
 let lastInitError: string | null = null;
+let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+let reconnectAttempt = 0;
+
+const MAX_RECONNECT_DELAY_MS = 5 * 60 * 1000;
+const PUPPETEER_ARGS = [
+  '--no-sandbox',
+  '--disable-setuid-sandbox',
+  '--disable-dev-shm-usage',
+  '--disable-gpu',
+  '--no-first-run',
+  '--no-zygote',
+  '--single-process',
+];
+
+const clearReconnectTimer = () => {
+  if (reconnectTimer) {
+    clearTimeout(reconnectTimer);
+    reconnectTimer = null;
+  }
+};
+
+const scheduleReconnect = (reason: string) => {
+  if (!config.whatsapp.enabled) return;
+  clearReconnectTimer();
+
+  const delay = Math.min(1000 * 2 ** reconnectAttempt, MAX_RECONNECT_DELAY_MS);
+  reconnectAttempt += 1;
+
+  logger.info('WhatsAppService: Scheduling reconnect', { reason, delayMs: delay, attempt: reconnectAttempt });
+
+  reconnectTimer = setTimeout(() => {
+    reconnectTimer = null;
+    void WhatsAppService.initClient().catch((error) => {
+      logger.error('WhatsAppService: Auto-reconnect failed', { error });
+    });
+  }, delay);
+};
 
 export const normalizePhone = (phone: string): string => {
   const digits = phone.replace(/\D/g, '');
@@ -26,6 +63,10 @@ export const buildWaMeUrl = (phone: string, message: string): string => {
 };
 
 export class WhatsAppService {
+  static isConnected(): boolean {
+    return connectionState === 'connected' && client !== null;
+  }
+
   static getStatus(): {
     connected: boolean;
     state: WhatsAppConnectionState;
@@ -101,7 +142,7 @@ export class WhatsAppService {
 
       const puppeteerConfig: Record<string, unknown> = {
         headless: true,
-        args: ['--no-sandbox', '--disable-setuid-sandbox'],
+        args: PUPPETEER_ARGS,
       };
 
       if (process.env.PUPPETEER_EXECUTABLE_PATH) {
@@ -117,6 +158,7 @@ export class WhatsAppService {
         currentQr = qr;
         connectionState = 'qr_pending';
         lastInitError = null;
+        reconnectAttempt = 0;
 
         try {
           const QRCode = await import('qrcode');
@@ -141,7 +183,12 @@ export class WhatsAppService {
         currentQr = null;
         lastInitError = null;
         connectedPhone = client?.info?.wid?.user ?? null;
+        reconnectAttempt = 0;
+        clearReconnectTimer();
         logger.info('WhatsAppService: Client ready', { phone: connectedPhone });
+        void this.processPendingNotifications().catch((error) => {
+          logger.error('WhatsAppService: Failed to flush pending notifications on ready', { error });
+        });
       });
 
       client.on('disconnected', (reason: string) => {
@@ -151,12 +198,16 @@ export class WhatsAppService {
         client = null;
         initializing = false;
         logger.warn('WhatsAppService: Disconnected', { reason });
+        scheduleReconnect(reason);
       });
 
       client.on('auth_failure', (msg: string) => {
         connectionState = 'disconnected';
         lastInitError = `Auth failure: ${msg}`;
+        client = null;
+        initializing = false;
         logger.error('WhatsAppService: Auth failure', { msg });
+        scheduleReconnect('auth_failure');
       });
 
       await client.initialize();
@@ -166,6 +217,7 @@ export class WhatsAppService {
       const msg = error instanceof Error ? error.message : String(error);
       lastInitError = msg;
       logger.error('WhatsAppService: Failed to initialize client', { error: msg });
+      scheduleReconnect('init_failure');
     } finally {
       initializing = false;
     }
@@ -203,8 +255,15 @@ export class WhatsAppService {
     }
 
     try {
-      const chatId = `${normalizePhone(phone)}@c.us`;
-      await client.sendMessage(chatId, message);
+      const normalized = normalizePhone(phone);
+      const numberId = await client.getNumberId(normalized);
+
+      if (!numberId) {
+        logger.warn('WhatsAppService: Number not registered on WhatsApp', { phone: normalized });
+        return false;
+      }
+
+      await client.sendMessage(numberId._serialized, message);
       return true;
     } catch (error) {
       logger.error('WhatsAppService: sendMessage failed', { phone, error });
@@ -304,6 +363,9 @@ export class WhatsAppService {
   }
 
   static async reconnect(): Promise<void> {
+    clearReconnectTimer();
+    reconnectAttempt = 0;
+
     if (client) {
       try { await client.destroy(); } catch { /* ignore */ }
       client = null;

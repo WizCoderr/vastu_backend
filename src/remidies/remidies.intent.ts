@@ -2,7 +2,7 @@ import * as reducer from './remidies.reducer';
 import { OrderStatus, DiscountType, BulkTierType, CouponProductScope, PaymentProvider } from '../generated/prisma/client';
 import { config } from '../core/config';
 import { StockService } from '../stock/stock.service';
-import { WhatsAppService } from '../notification/whatsapp.service';
+import { WhatsAppService, buildWaMeUrl } from '../notification/whatsapp.service';
 import { WhatsAppMessages } from '../notification/whatsapp.messages';
 
 // --- CATEGORY INTENT ---
@@ -721,9 +721,11 @@ export const updateStockSettings = async (globalLowStockThreshold: number) =>
 
 export const createCoupon = async (data: {
   code: string;
+  name?: string | null;
+  description?: string | null;
   discountType: DiscountType;
   discountValue: number;
-  maxUses: number;
+  maxUses?: number;
   expiresAt?: string | null;
   assignedUserId?: string | null;
   productScope?: CouponProductScope;
@@ -748,18 +750,23 @@ export const createCoupon = async (data: {
     categoryRules = await validateCouponCategoryRules(data.categoryRules!);
   }
 
+  const requiresGrant = data.requiresGrant ?? false;
+  const maxUses = requiresGrant ? 0 : (data.maxUses ?? 1);
+
   const coupon = await reducer.createCoupon({
     code: data.code.toUpperCase(),
+    name: data.name?.trim() || null,
+    description: data.description?.trim() || null,
     discountType: data.discountType,
     discountValue: data.discountValue,
-    maxUses: data.maxUses,
+    maxUses,
     expiresAt: data.expiresAt ? new Date(data.expiresAt) : null,
     assignedUserId: data.assignedUserId ?? null,
     productScope,
     productIds,
     categoryRules,
     isActive: data.isActive,
-    requiresGrant: data.requiresGrant ?? false,
+    requiresGrant,
   });
 
   return coupon ? formatCouponResponse(coupon) : null;
@@ -777,6 +784,8 @@ export const getCoupon = async (id: string) => {
 };
 
 export const updateCoupon = async (id: string, data: {
+  name?: string | null;
+  description?: string | null;
   discountValue?: number;
   maxUses?: number;
   expiresAt?: string | null;
@@ -837,9 +846,17 @@ export const updateCoupon = async (id: string, data: {
     // discountValue is the default remaining-category rate; type stays PERCENTAGE
   }
 
+  const nextRequiresGrant = data.requiresGrant ?? existing.requiresGrant;
+  // Grant coupons manage maxUses via Share; don't overwrite from admin maxUses field
+  const maxUses =
+    nextRequiresGrant && data.maxUses === undefined ? undefined : data.maxUses;
+
   const coupon = await reducer.updateCoupon(id, {
+    name: data.name === undefined ? undefined : data.name?.trim() || null,
+    description:
+      data.description === undefined ? undefined : data.description?.trim() || null,
     discountValue: data.discountValue,
-    maxUses: data.maxUses,
+    maxUses: nextRequiresGrant ? undefined : maxUses,
     expiresAt:
       data.expiresAt === undefined
         ? undefined
@@ -892,14 +909,16 @@ export const sendCouponToUsers = async (couponId: string, userIds: string[]) => 
     phoneNumber: string | null;
     grantId: string;
     alreadyActive: boolean;
-    whatsapp: 'queued' | 'no_phone' | 'skipped_existing';
+    whatsapp: 'queued' | 'no_phone' | 'skipped_existing' | 'fallback_link';
+    waMeUrl?: string;
   }> = [];
 
   for (const { grant, alreadyActive } of grantResults) {
     const user = usersById.get(grant.userId)!;
     const phone = user.phoneNumber?.trim() || '';
 
-    let whatsapp: 'queued' | 'no_phone' | 'skipped_existing' = 'queued';
+    let whatsapp: 'queued' | 'no_phone' | 'skipped_existing' | 'fallback_link' = 'queued';
+    let waMeUrl: string | undefined;
 
     if (alreadyActive) {
       whatsapp = 'skipped_existing';
@@ -911,17 +930,26 @@ export const sendCouponToUsers = async (couponId: string, userIds: string[]) => 
           ? `${Number(coupon.discountValue)}% off`
           : `₹${Number(coupon.discountValue).toLocaleString('en-IN')} off`;
 
+      const message = WhatsAppMessages.couponGrant({
+        code: coupon.code,
+        couponName: (coupon as { name?: string | null }).name,
+        description: (coupon as { description?: string | null }).description,
+        discountLabel,
+        expiresAt: coupon.expiresAt,
+        userName: user.name,
+      });
+
       await WhatsAppService.queueNotification({
         type: 'COUPON_GRANT',
         recipientPhone: phone,
-        message: WhatsAppMessages.couponGrant({
-          code: coupon.code,
-          discountLabel,
-          expiresAt: coupon.expiresAt,
-          userName: user.name,
-        }),
+        message,
         referenceId: grant.id,
       });
+
+      if (!WhatsAppService.isConnected()) {
+        whatsapp = 'fallback_link';
+        waMeUrl = buildWaMeUrl(phone, message);
+      }
     }
 
     results.push({
@@ -931,11 +959,15 @@ export const sendCouponToUsers = async (couponId: string, userIds: string[]) => 
       grantId: grant.id,
       alreadyActive,
       whatsapp,
+      waMeUrl,
     });
   }
 
+  // Refresh coupon so maxUses reflects bumps from new grants
+  const refreshed = await reducer.getCouponById(couponId);
+
   return {
-    coupon: formatCouponResponse(coupon),
+    coupon: formatCouponResponse(refreshed ?? coupon),
     results,
     summary: {
       total: results.length,
@@ -943,6 +975,77 @@ export const sendCouponToUsers = async (couponId: string, userIds: string[]) => 
       alreadyActive: results.filter((r) => r.alreadyActive).length,
       whatsappQueued: results.filter((r) => r.whatsapp === 'queued').length,
       noPhone: results.filter((r) => r.whatsapp === 'no_phone').length,
+    },
+  };
+};
+
+export const shareCouponByPhone = async (couponId: string, phoneNumber: string) => {
+  const coupon = await reducer.getCouponById(couponId);
+  if (!coupon) throw new Error('Coupon not found');
+  if (!coupon.isActive) throw new Error('Cannot share a deactivated coupon');
+  if (!coupon.requiresGrant) {
+    throw new Error('This coupon does not require grants. Enable "One-time per user" first.');
+  }
+  if (coupon.expiresAt && new Date() > coupon.expiresAt) {
+    throw new Error('This coupon has expired');
+  }
+
+  const user = await reducer.findUserByPhone(phoneNumber);
+  if (!user) {
+    throw new Error('No registered user with this phone number');
+  }
+
+  const [grantResult] = await reducer.createCouponGrants(couponId, [user.id]);
+  const { grant, alreadyActive } = grantResult;
+
+  let whatsapp: 'queued' | 'no_phone' | 'skipped_existing' | 'fallback_link' = 'queued';
+  let waMeUrl: string | undefined;
+  const phone = user.phoneNumber?.trim() || '';
+
+  if (alreadyActive) {
+    whatsapp = 'skipped_existing';
+  } else if (!phone) {
+    whatsapp = 'no_phone';
+  } else {
+    const discountLabel =
+      coupon.discountType === DiscountType.PERCENTAGE
+        ? `${Number(coupon.discountValue)}% off`
+        : `₹${Number(coupon.discountValue).toLocaleString('en-IN')} off`;
+
+    const message = WhatsAppMessages.couponGrant({
+      code: coupon.code,
+      couponName: (coupon as { name?: string | null }).name,
+      description: (coupon as { description?: string | null }).description,
+      discountLabel,
+      expiresAt: coupon.expiresAt,
+      userName: user.name,
+    });
+
+    await WhatsAppService.queueNotification({
+      type: 'COUPON_GRANT',
+      recipientPhone: phone,
+      message,
+      referenceId: grant.id,
+    });
+
+    if (!WhatsAppService.isConnected()) {
+      whatsapp = 'fallback_link';
+      waMeUrl = buildWaMeUrl(phone, message);
+    }
+  }
+
+  const refreshed = await reducer.getCouponById(couponId);
+
+  return {
+    coupon: formatCouponResponse(refreshed ?? coupon),
+    result: {
+      userId: user.id,
+      name: user.name,
+      phoneNumber: phone || null,
+      grantId: grant.id,
+      alreadyActive,
+      whatsapp,
+      waMeUrl,
     },
   };
 };

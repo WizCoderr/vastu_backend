@@ -255,9 +255,11 @@ export const createCouponSchema = z.object({
   body: z
     .object({
       code: z.string().min(3).max(32),
+      name: z.string().max(120).optional().nullable(),
+      description: z.string().max(500).optional().nullable(),
       discountType: z.enum(['PERCENTAGE', 'FIXED']),
       discountValue: z.number().positive('Discount value must be positive'),
-      maxUses: z.number().int().positive('Max uses must be at least 1'),
+      maxUses: z.number().int().positive('Max uses must be at least 1').optional(),
       expiresAt: z.string().datetime('Invalid expiry date').nullable().optional(),
       assignedUserId: idSchema.nullable().optional(),
       productScope: couponProductScopeSchema.default('ALL'),
@@ -266,13 +268,24 @@ export const createCouponSchema = z.object({
       isActive: z.boolean().optional(),
       requiresGrant: z.boolean().optional(),
     })
-    .superRefine((data, ctx) => couponScopeRefinement(data, ctx, 'create')),
+    .superRefine((data, ctx) => {
+      couponScopeRefinement(data, ctx, 'create');
+      if (!data.requiresGrant && (data.maxUses == null || data.maxUses < 1)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['maxUses'],
+          message: 'Max uses must be at least 1',
+        });
+      }
+    }),
 });
 
 export const updateCouponSchema = z.object({
   params: z.object({ id: idSchema }),
   body: z
     .object({
+      name: z.string().max(120).optional().nullable(),
+      description: z.string().max(500).optional().nullable(),
       discountValue: z.number().positive().optional(),
       maxUses: z.number().int().positive().optional(),
       expiresAt: z.string().datetime().nullable().optional(),
@@ -290,6 +303,13 @@ export const sendCouponSchema = z.object({
   params: z.object({ id: idSchema }),
   body: z.object({
     userIds: z.array(idSchema).min(1, 'At least one user is required'),
+  }),
+});
+
+export const shareCouponSchema = z.object({
+  params: z.object({ id: idSchema }),
+  body: z.object({
+    phoneNumber: z.string().min(8, 'Enter a valid phone number').max(20),
   }),
 });
 

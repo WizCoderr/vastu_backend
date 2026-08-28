@@ -1,0 +1,3 @@
+-- AlterTable
+ALTER TABLE "Coupon" ADD COLUMN IF NOT EXISTS "name" TEXT;
+ALTER TABLE "Coupon" ADD COLUMN IF NOT EXISTS "description" TEXT;

@@ -55,6 +55,20 @@ export const reconnectWhatsApp: RequestHandler = async (_req, res, next) => {
   }
 };
 
+export const initWhatsApp: RequestHandler = async (_req, res, next) => {
+  try {
+    void WhatsAppService.initClient();
+    const status = await WhatsAppService.getDetailedStatus();
+    res.status(200).json({
+      success: true,
+      message: 'WhatsApp client starting — QR code will appear shortly if not already connected',
+      data: status,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
 export const sendTestNotification: RequestHandler = async (_req, res, next) => {
   try {
     const adminPhone = config.whatsapp.adminPhone;

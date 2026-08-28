@@ -26,8 +26,19 @@ const startServer = () => {
     });
 };
 
-const numCPUs = parseInt(process.env.WEB_CONCURRENCY || process.env.WORKERS || '1', 10);
+const configuredWorkers = parseInt(process.env.WEB_CONCURRENCY || process.env.WORKERS || '1', 10);
 const forceCluster = process.env.FORCE_CLUSTER === 'true';
+
+// whatsapp-web.js holds a single in-memory session — cluster workers would split HTTP from the client.
+const numCPUs =
+    coreConfig.whatsapp.enabled && configuredWorkers > 1
+        ? (() => {
+              logger.warn(
+                  `WhatsApp requires single process; ignoring WORKERS=${configuredWorkers}. Set WORKERS=1 when WHATSAPP_ENABLED=true.`,
+              );
+              return 1;
+          })()
+        : configuredWorkers;
 
 if ((numCPUs > 1 || forceCluster) && cluster.isPrimary) {
     logger.info(`Master ${process.pid} is running`);

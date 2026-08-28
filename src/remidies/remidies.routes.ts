@@ -81,6 +81,7 @@ remidiesAdminRouter.get('/coupons/:id', ctrl.getCoupon as RequestHandler);
 remidiesAdminRouter.put('/coupons/:id', ctrl.updateCoupon as RequestHandler);
 remidiesAdminRouter.delete('/coupons/:id', ctrl.deactivateCoupon as RequestHandler);
 remidiesAdminRouter.post('/coupons/:id/send', ctrl.sendCoupon as RequestHandler);
+remidiesAdminRouter.post('/coupons/:id/share', ctrl.shareCoupon as RequestHandler);
 remidiesAdminRouter.get('/coupons/:id/grants', ctrl.getCouponGrants as RequestHandler);
 
 // Bulk discount tier management (admin)

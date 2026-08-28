@@ -421,6 +421,8 @@ export type CouponCategoryRuleInput = {
 
 export const createCoupon = async (data: {
   code: string;
+  name?: string | null;
+  description?: string | null;
   discountType: DiscountType;
   discountValue: number;
   maxUses: number;
@@ -499,6 +501,8 @@ export const getAllCoupons = async (filters?: { assignedUserId?: string; isActiv
 };
 
 export const updateCoupon = async (id: string, data: {
+  name?: string | null;
+  description?: string | null;
   discountValue?: number;
   maxUses?: number;
   expiresAt?: Date | null;
@@ -619,13 +623,45 @@ export const createCouponGrants = async (couponId: string, userIds: string[]) =>
       continue;
     }
 
-    const grant = await prisma.couponGrant.create({
-      data: { couponId, userId, status: 'ACTIVE' },
+    const grant = await prisma.$transaction(async (tx) => {
+      await tx.coupon.update({
+        where: { id: couponId },
+        data: { maxUses: { increment: 1 } },
+      });
+      return tx.couponGrant.create({
+        data: { couponId, userId, status: 'ACTIVE' },
+      });
     });
     created.push({ grant, alreadyActive: false as const });
   }
 
   return created;
+};
+
+/** Digits-only phone; match last 10 digits against stored numbers. */
+export const findUserByPhone = async (phoneNumber: string) => {
+  const digits = phoneNumber.replace(/\D/g, '');
+  if (digits.length < 8) return null;
+
+  const suffix = digits.length >= 10 ? digits.slice(-10) : digits;
+  const users = await prisma.user.findMany({
+    where: {
+      OR: [
+        { phoneNumber: digits },
+        { phoneNumber: suffix },
+        { phoneNumber: { endsWith: suffix } },
+      ],
+    },
+    select: { id: true, name: true, email: true, phoneNumber: true },
+    take: 5,
+  });
+
+  if (users.length === 0) return null;
+  // Prefer exact / suffix match over loose endsWith collisions
+  const exact =
+    users.find((u) => u.phoneNumber.replace(/\D/g, '') === digits) ??
+    users.find((u) => u.phoneNumber.replace(/\D/g, '').endsWith(suffix));
+  return exact ?? users[0];
 };
 
 export const getCouponGrants = async (couponId: string) => {
