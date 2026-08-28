@@ -20,6 +20,15 @@ const startBackgroundServices = () => {
     }
 };
 
+const shutdown = async (signal: string) => {
+    logger.info(`Received ${signal}, shutting down...`);
+    await WhatsAppService.shutdown();
+    process.exit(0);
+};
+
+process.on('SIGTERM', () => void shutdown('SIGTERM'));
+process.on('SIGINT', () => void shutdown('SIGINT'));
+
 const startServer = () => {
     app.listen(config.port, () => {
         logger.info(`Server started on port ${config.port}`);

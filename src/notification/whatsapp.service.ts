@@ -1,5 +1,6 @@
 import { WhatsAppNotificationStatus, WhatsAppNotificationType } from '../generated/prisma/client';
-import { existsSync } from 'node:fs';
+import { existsSync, unlinkSync } from 'node:fs';
+import { join } from 'node:path';
 import { prisma } from '../core/prisma';
 import { config } from '../core/config';
 import logger from '../utils/logger';
@@ -41,6 +42,22 @@ const PUPPETEER_ARGS = [
   '--no-zygote',
   '--single-process',
 ];
+
+const CHROMIUM_LOCK_FILES = ['SingletonLock', 'SingletonSocket', 'SingletonCookie'];
+
+const clearStaleChromiumProfileLocks = (dataPath: string): void => {
+  const profileDir = join(dataPath, 'session');
+  for (const file of CHROMIUM_LOCK_FILES) {
+    const lockPath = join(profileDir, file);
+    if (!existsSync(lockPath)) continue;
+    try {
+      unlinkSync(lockPath);
+      logger.warn('WhatsAppService: Removed stale Chromium lock', { lockPath });
+    } catch (error) {
+      logger.warn('WhatsAppService: Could not remove Chromium lock', { lockPath, error });
+    }
+  }
+};
 
 const clearReconnectTimer = () => {
   if (reconnectTimer) {
@@ -153,6 +170,7 @@ export class WhatsAppService {
 
     initializing = true;
     lastInitError = null;
+    clearStaleChromiumProfileLocks(config.whatsapp.sessionPath);
 
     try {
       const { Client, LocalAuth } = await import('whatsapp-web.js');
@@ -399,5 +417,15 @@ export class WhatsAppService {
     lastInitError = null;
     logger.info('WhatsAppService: Reconnecting — watch logs for QR code');
     await this.initClient();
+  }
+
+  static async shutdown(): Promise<void> {
+    clearReconnectTimer();
+    if (client) {
+      try { await client.destroy(); } catch { /* ignore */ }
+      client = null;
+    }
+    connectionState = 'disconnected';
+    initializing = false;
   }
 }
