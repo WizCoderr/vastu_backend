@@ -8,6 +8,7 @@ const router = Router();
 router.post('/register', AuthIntent.register);
 router.post('/login', AuthIntent.login);
 router.post('/forgot-password', AuthIntent.forgotPassword);
+router.post('/verify-reset-otp', AuthIntent.verifyResetOtp);
 router.post('/reset-password', AuthIntent.resetPassword);
 router.get('/me', requireAuth, AuthIntent.getUser);
 

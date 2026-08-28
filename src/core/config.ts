@@ -7,6 +7,11 @@ const parseInteger = (value: string | undefined, fallback: number, min = 1): num
     return result < min ? fallback : result;
 };
 
+const trimEnv = (value: string | undefined): string | undefined => {
+    if (!value) return undefined;
+    return value.trim().replace(/^["']|["']$/g, '');
+};
+
 export const config = {
     port: process.env.PORT || 3000,
     env: process.env.NODE_ENV || 'development',
@@ -14,6 +19,7 @@ export const config = {
     databaseUrl: process.env.DATABASE_URL,
     passwordResetBaseUrl: process.env.PASSWORD_RESET_BASE_URL || 'http://localhost:3001/reset-password',
     passwordResetTtlMinutes: parseInteger(process.env.PASSWORD_RESET_TTL_MINUTES, 30),
+    passwordResetOtpTtlMinutes: parseInteger(process.env.PASSWORD_RESET_OTP_TTL_MINUTES, 10),
 
     // FCM Push Notifications (Direct HTTP API)
     fcm: {
@@ -44,9 +50,10 @@ export const config = {
         host: process.env.SMTP_HOST || 'smtp.gmail.com',
         port: parseInteger(process.env.SMTP_PORT, 587),
         secure: process.env.SMTP_SECURE === 'true', // true for 465, false for other ports
-        user: process.env.SMTP_USER,
-        pass: process.env.SMTP_PASS,
-        from: process.env.SMTP_FROM || 'noreply@vastuarunsharma.com',
+        user: trimEnv(process.env.SMTP_USER),
+        pass: trimEnv(process.env.SMTP_PASS),
+        from: trimEnv(process.env.SMTP_FROM) || 'noreply@vastuarunsharma.com',
+        logOnly: process.env.SMTP_LOG_ONLY === 'true',
     },
 
     whatsapp: {

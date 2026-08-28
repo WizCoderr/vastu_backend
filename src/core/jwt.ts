@@ -8,7 +8,7 @@ interface TokenPayload {
 const tokenBlacklist = new Set<string>();
 
 export const signToken = (payload: TokenPayload): string => {
-    return jwt.sign(payload, config.jwtSecret, { expiresIn: '7d' });
+    return jwt.sign(payload, config.jwtSecret);
 };
 
 export const blacklistToken = (token: string) => {

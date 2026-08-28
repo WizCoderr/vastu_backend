@@ -1,6 +1,10 @@
 import logger from "../utils/logger";
 import nodemailer from "nodemailer";
 import { config } from "../core/config";
+import {
+    buildPasswordResetOtpEmailHtml,
+    buildPasswordResetOtpEmailText,
+} from "./templates/password-reset-otp.email";
 
 export interface ReceiptData {
     receiptId: string;
@@ -17,11 +21,10 @@ export interface ReceiptData {
     couponDiscount?: number;
 }
 
-export interface PasswordResetEmailData {
-    userName: string;
+export interface PasswordResetOtpEmailData {
     userEmail: string;
-    resetUrl: string;
-    expiresAt: Date;
+    otp: string;
+    expiresMinutes: number;
 }
 
 export class EmailService {
@@ -67,35 +70,40 @@ export class EmailService {
         }
     }
 
-    static async sendPasswordReset(data: PasswordResetEmailData): Promise<void> {
+    private static logPasswordResetOtpToConsole(data: PasswordResetOtpEmailData, label: string): void {
+        logger.info("=========================================");
+        logger.info(label);
+        logger.info(`To: ${data.userEmail}`);
+        logger.info(`OTP: ${data.otp}`);
+        logger.info(`Expires In: ${data.expiresMinutes} minutes`);
+        logger.info("=========================================");
+    }
+
+    static async sendPasswordResetOtp(data: PasswordResetOtpEmailData): Promise<boolean> {
         try {
             const smtp = config.smtp;
-            if (!smtp.user || !smtp.pass) {
-                // Dev-friendly fallback when SMTP isn't configured.
-                logger.info("=========================================");
-                logger.info("PASSWORD RESET EMAIL (LOG ONLY)");
-                logger.info(`To: ${data.userName} <${data.userEmail}>`);
-                logger.info(`Reset URL: ${data.resetUrl}`);
-                logger.info(`Expires At: ${data.expiresAt.toISOString()}`);
-                logger.info("=========================================");
-                return;
+            if (smtp.logOnly || !smtp.user || !smtp.pass) {
+                this.logPasswordResetOtpToConsole(
+                    data,
+                    smtp.logOnly ? "PASSWORD RESET OTP (SMTP_LOG_ONLY)" : "PASSWORD RESET OTP (LOG ONLY)",
+                );
+                return false;
             }
 
             const transporter = this.getTransporter();
-            const subject = "Reset your password";
-            const text = [
-                `Hi ${data.userName},`,
-                "",
-                "We received a request to reset your password.",
-                `Reset link: ${data.resetUrl}`,
-                "",
-                `This link expires at: ${data.expiresAt.toISOString()}`,
-                "",
-                "If you didn't request this, you can ignore this email.",
-            ].join("\n");
-            const html = this.generatePasswordResetHtml(data);
+            const subject = "Your password reset code";
+            const text = buildPasswordResetOtpEmailText({
+                email: data.userEmail,
+                otp: data.otp,
+                expiresMinutes: data.expiresMinutes,
+            });
+            const html = buildPasswordResetOtpEmailHtml({
+                email: data.userEmail,
+                otp: data.otp,
+                expiresMinutes: data.expiresMinutes,
+            });
 
-            await transporter.sendMail({
+            const info = await transporter.sendMail({
                 from: smtp.from,
                 to: data.userEmail,
                 subject,
@@ -103,13 +111,18 @@ export class EmailService {
                 html,
             });
 
-            // Avoid logging the reset URL/token in real email mode.
-            logger.info("EmailService: Password reset email sent", {
+            logger.info("EmailService: Password reset OTP email sent", {
                 userEmail: data.userEmail,
-                expiresAt: data.expiresAt.toISOString(),
+                expiresMinutes: data.expiresMinutes,
+                messageId: info.messageId,
+                accepted: info.accepted,
+                rejected: info.rejected,
+                response: info.response,
             });
+            return true;
         } catch (error) {
-            logger.error("EmailService: Failed to send password reset email", { error, userEmail: data.userEmail });
+            logger.error("EmailService: Failed to send password reset OTP email", { error, userEmail: data.userEmail });
+            throw error;
         }
     }
 
@@ -147,27 +160,6 @@ export class EmailService {
         `;
     }
 
-    private static generatePasswordResetHtml(data: PasswordResetEmailData): string {
-        return `
-            <div style="font-family: Arial, sans-serif; line-height: 1.5;">
-                <h2>Reset your password</h2>
-                <p>Hi ${data.userName},</p>
-                <p>We received a request to reset your password. Click the button below to set a new one.</p>
-                <p style="margin: 24px 0;">
-                    <a
-                        href="${data.resetUrl}"
-                        style="background:#111827;color:#ffffff;padding:12px 16px;border-radius:8px;text-decoration:none;display:inline-block;"
-                    >
-                        Reset password
-                    </a>
-                </p>
-                <p>This link expires at: <strong>${data.expiresAt.toISOString()}</strong></p>
-                <p>If you didn't request this, you can ignore this email.</p>
-                <p>Regards,<br/>Vastu Arun Sharma Team</p>
-            </div>
-        `;
-    }
-
     private static getTransporter(): nodemailer.Transporter {
         const smtp = config.smtp;
         const key = JSON.stringify({
@@ -185,6 +177,7 @@ export class EmailService {
             host: smtp.host,
             port: smtp.port,
             secure: smtp.secure,
+            requireTLS: !smtp.secure && smtp.port === 587,
             auth,
         });
         this.transporterKey = key;

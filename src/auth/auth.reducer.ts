@@ -1,15 +1,27 @@
 import bcrypt from 'bcryptjs';
-import { createHash, randomBytes } from 'crypto';
+import { createHash, randomBytes, randomInt } from 'crypto';
 import { prisma } from "../core/prisma";
 import { signToken } from '../core/jwt';
 import { config } from '../core/config';
 import { EmailService } from '../notification/email.service';
-import { RegisterDto, LoginDto, ForgotPasswordDto, ResetPasswordDto, AuthResponse, AuthMessageResponse, UserDto } from './auth.dto';
+import logger from '../utils/logger';
+import {
+    RegisterDto,
+    LoginDto,
+    ForgotPasswordDto,
+    ResetPasswordDto,
+    VerifyResetOtpDto,
+    AuthResponse,
+    AuthMessageResponse,
+    VerifyResetOtpResponse,
+    UserDto,
+} from './auth.dto';
 import { Result } from '../core/result';
 
 export class AuthReducer {
-    private static readonly forgotPasswordMessage = 'If the account exists, a reset link has been sent.';
+    private static readonly forgotPasswordMessage = 'If the account exists, a reset code has been sent.';
     private static readonly invalidResetTokenMessage = 'Invalid or expired reset token';
+    private static readonly invalidOtpMessage = 'Invalid or expired code';
 
     static async register(dto: RegisterDto): Promise<Result<AuthResponse>> {
         const existingUser = await prisma.user.findUnique({ where: { email: dto.email } });
@@ -110,40 +122,129 @@ export class AuthReducer {
     }
 
     static async forgotPassword(dto: ForgotPasswordDto): Promise<Result<AuthMessageResponse>> {
-        const user = await prisma.user.findUnique({ where: { email: dto.email } });
+        let tokenHash: string | null = null;
+        let otp: string | null = null;
 
+        try {
+            const user = await prisma.user.findUnique({ where: { email: dto.email } });
+
+            if (!user) {
+                return Result.ok({ message: this.forgotPasswordMessage });
+            }
+
+            otp = this.generateOtp();
+            const otpHash = this.hashResetToken(otp);
+            tokenHash = otpHash;
+            const now = new Date();
+            const expiresMinutes = config.passwordResetOtpTtlMinutes;
+            const expiresAt = new Date(now.getTime() + expiresMinutes * 60 * 1000);
+
+            await prisma.$transaction(async (tx) => {
+                await tx.passwordResetToken.updateMany({
+                    where: { userId: user.id, usedAt: null },
+                    data: { usedAt: now },
+                });
+
+                await tx.passwordResetToken.create({
+                    data: {
+                        userId: user.id,
+                        tokenHash: otpHash,
+                        expiresAt,
+                    },
+                });
+            });
+
+            let delivered = false;
+
+            try {
+                delivered = await EmailService.sendPasswordResetOtp({
+                    userEmail: user.email,
+                    otp,
+                    expiresMinutes,
+                });
+            } catch (emailError) {
+                if (config.env === 'development' || config.smtp.logOnly) {
+                    logger.warn('AuthReducer.forgotPassword: SMTP failed, logging OTP instead', {
+                        email: dto.email,
+                        error: emailError,
+                    });
+                    return Result.ok({
+                        message: this.forgotPasswordMessage,
+                        devOtp: otp,
+                    });
+                }
+
+                throw emailError;
+            }
+
+            const response: AuthMessageResponse = { message: this.forgotPasswordMessage };
+            if (config.env === 'development' || config.smtp.logOnly || !delivered) {
+                response.devOtp = otp;
+            }
+
+            return Result.ok(response);
+        } catch (error) {
+            if (tokenHash) {
+                await prisma.passwordResetToken.deleteMany({
+                    where: { tokenHash, usedAt: null },
+                }).catch((cleanupError) => {
+                    logger.error('AuthReducer.forgotPassword: Failed to roll back reset OTP', {
+                        cleanupError,
+                        email: dto.email,
+                    });
+                });
+            }
+
+            logger.error('AuthReducer.forgotPassword: Failed to send reset OTP email', { error, email: dto.email });
+            return Result.fail('Unable to send reset email. Please try again later.');
+        }
+    }
+
+    static async verifyResetOtp(dto: VerifyResetOtpDto): Promise<Result<VerifyResetOtpResponse>> {
+        const user = await prisma.user.findUnique({ where: { email: dto.email } });
         if (!user) {
-            return Result.ok({ message: this.forgotPasswordMessage });
+            return Result.fail(this.invalidOtpMessage);
         }
 
-        const rawToken = randomBytes(32).toString('hex');
-        const tokenHash = this.hashResetToken(rawToken);
+        const otpHash = this.hashResetToken(dto.otp);
         const now = new Date();
-        const expiresAt = new Date(now.getTime() + config.passwordResetTtlMinutes * 60 * 1000);
+
+        const otpRecord = await prisma.passwordResetToken.findFirst({
+            where: {
+                userId: user.id,
+                tokenHash: otpHash,
+                usedAt: null,
+                expiresAt: { gt: now },
+            },
+        });
+
+        if (!otpRecord) {
+            return Result.fail(this.invalidOtpMessage);
+        }
+
+        const resetToken = randomBytes(32).toString('hex');
+        const resetTokenHash = this.hashResetToken(resetToken);
+        const expiresAt = new Date(now.getTime() + config.passwordResetOtpTtlMinutes * 60 * 1000);
 
         await prisma.$transaction(async (tx) => {
-            await tx.passwordResetToken.updateMany({
-                where: { userId: user.id, usedAt: null },
+            await tx.passwordResetToken.update({
+                where: { id: otpRecord.id },
                 data: { usedAt: now },
             });
 
             await tx.passwordResetToken.create({
                 data: {
                     userId: user.id,
-                    tokenHash,
+                    tokenHash: resetTokenHash,
                     expiresAt,
                 },
             });
         });
 
-        await EmailService.sendPasswordReset({
-            userName: user.name ?? 'there',
-            userEmail: user.email,
-            resetUrl: this.buildPasswordResetUrl(rawToken),
-            expiresAt,
+        return Result.ok({
+            message: 'Code verified. You can now set a new password.',
+            resetToken,
         });
-
-        return Result.ok({ message: this.forgotPasswordMessage });
     }
 
     static async resetPassword(dto: ResetPasswordDto): Promise<Result<AuthMessageResponse>> {
@@ -192,13 +293,11 @@ export class AuthReducer {
         return result;
     }
 
-    private static hashResetToken(token: string): string {
-        return createHash('sha256').update(token).digest('hex');
+    private static generateOtp(): string {
+        return randomInt(100000, 1000000).toString();
     }
 
-    private static buildPasswordResetUrl(token: string): string {
-        const resetUrl = new URL(config.passwordResetBaseUrl);
-        resetUrl.searchParams.set('token', token);
-        return resetUrl.toString();
+    private static hashResetToken(token: string): string {
+        return createHash('sha256').update(token).digest('hex');
     }
 }

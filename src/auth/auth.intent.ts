@@ -1,5 +1,5 @@
 import { Request, Response } from 'express';
-import { registerSchema, loginSchema, forgotPasswordSchema, resetPasswordSchema, updateProfileSchema } from './auth.dto';
+import { registerSchema, loginSchema, forgotPasswordSchema, resetPasswordSchema, verifyResetOtpSchema, updateProfileSchema } from './auth.dto';
 import { AuthReducer } from "./auth.reducer";
 import { Result } from '../core/result';
 import logger from '../utils/logger';
@@ -32,7 +32,10 @@ export class AuthIntent {
 
     static async login(req: Request, res: Response) {
         const { password, ...logBody } = req.body;
-        logger.info('AuthIntent.login: Attempting login', { body: logBody });
+        logger.info('AuthIntent.login: Attempting login', {
+            body: logBody,
+            hasPassword: Boolean(password),
+        });
 
         const validation = loginSchema.safeParse(req.body);
 
@@ -64,7 +67,33 @@ export class AuthIntent {
 
         const result = await AuthReducer.forgotPassword(validation.data);
 
+        if (!result.success) {
+            logger.warn('AuthIntent.forgotPassword: Failed to send reset email', { email: validation.data.email, error: result.error });
+            return res.status(503).json(result);
+        }
+
         logger.info('AuthIntent.forgotPassword: Password reset request processed', { email: validation.data.email });
+        return res.status(200).json(result);
+    }
+
+    static async verifyResetOtp(req: Request, res: Response) {
+        logger.info('AuthIntent.verifyResetOtp: OTP verification requested', { email: req.body?.email });
+
+        const validation = verifyResetOtpSchema.safeParse(req.body);
+
+        if (!validation.success) {
+            logger.warn('AuthIntent.verifyResetOtp: Validation failed', { error: validation.error });
+            return res.status(400).json(Result.fail(validation.error));
+        }
+
+        const result = await AuthReducer.verifyResetOtp(validation.data);
+
+        if (!result.success) {
+            logger.warn('AuthIntent.verifyResetOtp: OTP verification failed', { email: validation.data.email });
+            return res.status(400).json(result);
+        }
+
+        logger.info('AuthIntent.verifyResetOtp: OTP verified', { email: validation.data.email });
         return res.status(200).json(result);
     }
 

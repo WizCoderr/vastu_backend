@@ -172,7 +172,7 @@ export const formatCartProduct = (product: RawCart['items'][number]['product']) 
   });
 };
 
-export const formatCart = (cart: RawCart | null) => {
+export const formatCart = async (cart: RawCart | null) => {
   if (!cart) return null;
 
   let subtotal = 0;
@@ -186,7 +186,10 @@ export const formatCart = (cart: RawCart | null) => {
     return { ...item, lineTotal, product };
   });
 
-  return { ...cart, items, subtotal, itemCount };
+  const { bulkDiscount } = await applyBulkDiscount(subtotal, itemCount);
+  const totalBeforeCoupon = subtotal - bulkDiscount;
+
+  return { ...cart, items, subtotal, itemCount, bulkDiscount, totalBeforeCoupon };
 };
 
 export const getCart = async (userId: string) => {
@@ -194,7 +197,7 @@ export const getCart = async (userId: string) => {
   if (!cart) {
     cart = await reducer.createCart(userId);
   }
-  return formatCart(cart);
+  return await formatCart(cart);
 };
 
 export const addToCart = async (userId: string, productId: string, quantity: number) => {
@@ -221,7 +224,7 @@ export const addToCart = async (userId: string, productId: string, quantity: num
     await reducer.addCartItem(cart.id, productId, quantity);
   }
 
-  return formatCart(await reducer.getCartByUserId(userId));
+  return await formatCart(await reducer.getCartByUserId(userId));
 };
 
 export const updateCartItem = async (userId: string, productId: string, quantity: number) => {
@@ -240,7 +243,7 @@ export const updateCartItem = async (userId: string, productId: string, quantity
   }
 
   await reducer.updateCartItemQuantity(existingItem.id, quantity);
-  return formatCart(await reducer.getCartByUserId(userId));
+  return await formatCart(await reducer.getCartByUserId(userId));
 };
 
 export const removeFromCart = async (userId: string, productId: string) => {
@@ -248,7 +251,7 @@ export const removeFromCart = async (userId: string, productId: string) => {
   if (!cart) throw new Error('Cart not found');
 
   await reducer.removeCartItem(cart.id, productId);
-  return formatCart(await reducer.getCartByUserId(userId));
+  return await formatCart(await reducer.getCartByUserId(userId));
 };
 
 // --- DISCOUNT HELPERS ---
@@ -1148,6 +1151,8 @@ export const validateCouponForUser = async (
     }[];
     eligibleSubtotal?: number;
     discountAmount?: number;
+    bulkDiscount?: number;
+    postBulkSubtotal?: number;
   } = {
     code: coupon.code,
     discountType: coupon.discountType,
@@ -1186,6 +1191,8 @@ export const validateCouponForUser = async (
 
     response.eligibleSubtotal = eligibleSubtotal;
     response.discountAmount = discountAmount;
+    response.bulkDiscount = bulkDiscount;
+    response.postBulkSubtotal = postBulkAmount;
   }
 
   return response;

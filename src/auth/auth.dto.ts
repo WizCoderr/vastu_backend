@@ -1,7 +1,9 @@
 import { z } from 'zod';
 
+const emailField = z.string().email().transform((value) => value.trim().toLowerCase());
+
 export const registerSchema = z.object({
-    email: z.string().email(),
+    email: emailField,
     password: z.string().min(6),
     name: z.string().min(2),
     role: z.enum(['student', 'admin']).optional(), // Optional, default to student in logic
@@ -14,12 +16,12 @@ export const updateProfileSchema = z.object({
 });
 
 export const loginSchema = z.object({
-    email: z.string().email(),
+    email: emailField,
     password: z.string(),
 });
 
 export const forgotPasswordSchema = z.object({
-    email: z.string().email(),
+    email: emailField,
 });
 
 export const resetPasswordSchema = z.object({
@@ -27,11 +29,17 @@ export const resetPasswordSchema = z.object({
     password: z.string().min(6),
 });
 
+export const verifyResetOtpSchema = z.object({
+    email: emailField,
+    otp: z.string().regex(/^\d{6}$/, 'OTP must be a 6-digit code'),
+});
+
 export type RegisterDto = z.infer<typeof registerSchema>;
 export type UpdateProfileDto = z.infer<typeof updateProfileSchema>;
 export type LoginDto = z.infer<typeof loginSchema>;
 export type ForgotPasswordDto = z.infer<typeof forgotPasswordSchema>;
 export type ResetPasswordDto = z.infer<typeof resetPasswordSchema>;
+export type VerifyResetOtpDto = z.infer<typeof verifyResetOtpSchema>;
 
 export interface UserDto {
     id: string;
@@ -49,4 +57,11 @@ export interface AuthResponse {
 
 export interface AuthMessageResponse {
     message: string;
+    /** Present only when email could not be delivered in dev/log-only mode. */
+    devOtp?: string;
+}
+
+export interface VerifyResetOtpResponse {
+    message: string;
+    resetToken: string;
 }
