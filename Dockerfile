@@ -9,11 +9,10 @@ RUN bun install --frozen-lockfile
 
 FROM base AS build
 ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
-# prisma.config.ts requires DATABASE_URL; generate does not connect to the DB
-ENV DATABASE_URL="postgres://8788cc239a826a2c7eb0c39472c4123f26a960c5c58fdf84899102cf03695ec5:sk_QvwQDYNssLOEpSQGv8XcO@pooled.db.prisma.io:5432/postgres?sslmode=verify-full"
+# schema requires DATABASE_URL at generate time; generate does not connect to the DB
+ENV DATABASE_URL="mongodb://localhost:27017/vastu"
 COPY --from=deps /app/node_modules ./node_modules
 COPY prisma ./prisma/
-COPY prisma.config.ts ./
 COPY package.json bun.lock* ./
 RUN ./node_modules/.bin/prisma generate
 
@@ -58,7 +57,6 @@ COPY --from=deps /app/node_modules ./node_modules
 COPY --from=build /app/src/generated ./src/generated
 COPY package.json bun.lock* ./
 COPY prisma ./prisma/
-COPY prisma.config.ts ./
 COPY src ./src/
 COPY docker/entrypoint-api.sh /entrypoint-api.sh
 
