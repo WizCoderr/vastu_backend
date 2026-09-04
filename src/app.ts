@@ -2,6 +2,8 @@ import express from "express";
 import cors from "cors";
 import helmet from "helmet";
 import morgan from "morgan";
+import compression from "compression";
+import cookieParser from "cookie-parser";
 import authRoutes from "./routes/auth.routes";
 import studentRoutes from "./routes/student.routes";
 import paymentRoutes from "./routes/payment.routes";
@@ -10,6 +12,8 @@ import adminRoutes from "./routes/admin.routes";
 import publicRoutes from "./routes/public.routes";
 import remidiesRoutes from "./routes/remidies.route";
 import { config } from "./config";
+import { auditLogMiddleware } from "./middleware/audit-log.middleware";
+import { pingRedis } from "./config/redis";
 
 const app = express();
 
@@ -36,10 +40,16 @@ app.use(
   }),
 );
 app.set("trust proxy", 1);
+app.use(compression());
 app.use(morgan("dev"));
+app.use(cookieParser());
+app.use(auditLogMiddleware);
 
 // Webhook route - needs raw body for payment providers if needed
 app.use("/api/payments/webhook", express.raw({ type: "application/json" }));
+
+// Serve invoice files
+app.use("/storage/invoices", express.static("storage/invoices"));
 
 // For everything else using JSON
 app.use(express.json({ limit: "50mb" }));
@@ -59,8 +69,14 @@ app.use("/api/remidies", remidiesRoutes); // /api/remidies/user/* and /api/remid
 app.use("/uploads", express.static("uploads"));
 
 // Health check
-app.get("/health", (req, res) => {
-  res.send("OK");
+app.get("/health", async (req, res) => {
+  const { config: coreConfig } = await import("./core/config");
+  const redisOk = coreConfig.redis.enabled ? await pingRedis() : true;
+  res.status(redisOk ? 200 : 503).json({
+    status: redisOk ? "ok" : "degraded",
+    redis: redisOk,
+    timestamp: new Date().toISOString(),
+  });
 });
 
 // Root route

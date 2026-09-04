@@ -52,6 +52,7 @@ export interface UserDto {
 
 export interface AuthResponse {
     token: string;
+    refreshToken?: string;
     user: UserDto;
 }
 

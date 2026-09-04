@@ -80,4 +80,54 @@ export const config = {
                 : process.env.RAZORPAY_KEY_SECRET_PROD;
         },
     },
+
+    paymentProvider: process.env.PAYMENT_PROVIDER || 'upi',
+
+    upi: {
+        merchantVpa: process.env.UPI_MERCHANT_VPA || 'payments@wizhub',
+        merchantName: process.env.UPI_MERCHANT_NAME || 'WizHub',
+        bankProvider: (process.env.PAYMENT_BANK_PROVIDER || 'mock') as
+            | 'hdfc' | 'icici' | 'axis' | 'sbi' | 'kotak' | 'mock',
+        bankApiKey: process.env.BANK_API_KEY || '',
+        bankApiSecret: process.env.BANK_API_SECRET || '',
+        bankMerchantId: process.env.BANK_MERCHANT_ID || '',
+        bankBaseUrl: process.env.BANK_BASE_URL || 'https://api.mock-bank.local',
+        paymentExpiryMinutes: parseInteger(process.env.UPI_PAYMENT_EXPIRY_MINUTES, 30),
+        invoiceBaseUrl: process.env.INVOICE_BASE_URL || 'http://localhost:3030',
+    },
+
+    redis: {
+        url: process.env.REDIS_URL || 'redis://localhost:6379',
+        enabled: process.env.REDIS_ENABLED !== 'false',
+        connectTimeoutMs: parseInteger(process.env.REDIS_CONNECT_TIMEOUT_MS, 10_000),
+        commandTimeoutMs: parseInteger(process.env.REDIS_COMMAND_TIMEOUT_MS, 5_000),
+        lockTtlMs: parseInteger(process.env.PAYMENT_LOCK_TTL_MS, 30_000),
+        cacheTtlPendingSec: parseInteger(process.env.PAYMENT_STATUS_CACHE_TTL_PENDING_SEC, 3),
+        cacheTtlTerminalSec: parseInteger(process.env.PAYMENT_STATUS_CACHE_TTL_TERMINAL_SEC, 300),
+    },
+
+    process: {
+        /** api = HTTP only | worker = background jobs only | all = single-process dev */
+        role: (process.env.PROCESS_ROLE || 'all') as 'api' | 'worker' | 'all',
+        runPaymentWorkers: process.env.RUN_PAYMENT_WORKERS !== 'false',
+    },
+
+    queue: {
+        paymentVerifyConcurrency: parseInteger(process.env.PAYMENT_VERIFY_CONCURRENCY, 10),
+        invoiceConcurrency: parseInteger(process.env.INVOICE_WORKER_CONCURRENCY, 5),
+        paymentVerifyAttempts: parseInteger(process.env.PAYMENT_VERIFY_ATTEMPTS, 20),
+        paymentVerifyBackoffMs: parseInteger(process.env.PAYMENT_VERIFY_BACKOFF_MS, 5000),
+    },
+
+    database: {
+        poolMax: parseInteger(process.env.DATABASE_POOL_MAX, 20),
+        poolIdleTimeoutMs: parseInteger(process.env.DATABASE_POOL_IDLE_TIMEOUT_MS, 30_000),
+        poolConnectionTimeoutMs: parseInteger(process.env.DATABASE_POOL_CONNECTION_TIMEOUT_MS, 10_000),
+    },
+
+    jwt: {
+        refreshSecret: process.env.JWT_REFRESH_SECRET || process.env.JWT_SECRET || '',
+        refreshTtlDays: parseInteger(process.env.JWT_REFRESH_TTL_DAYS, 30),
+        accessTtlMinutes: parseInteger(process.env.JWT_ACCESS_TTL_MINUTES, 60),
+    },
 };

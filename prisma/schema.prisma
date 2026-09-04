@@ -215,8 +215,16 @@ model StudentPayment {
   stageName String
   amount    Decimal @db.Decimal(10, 2)
 
+  merchantTxnRef    String? @unique
+  utr               String? @unique
+  providerPaymentId String?
   razorpayOrderId   String?
   razorpayPaymentId String?
+  upiUrl            String?
+  qrCodeBase64      String? @db.Text
+  providerResponse  Json?
+  expiresAt         DateTime?
+  verifiedAt        DateTime?
 
   status StudentPaymentStatus @default(PENDING)
 
@@ -267,6 +275,7 @@ enum PaymentType {
 }
 
 enum PaymentProvider {
+  UPI
   RAZORPAY
   CASH
 }
@@ -286,22 +295,46 @@ model Payment {
 
   amount   Decimal @db.Decimal(10, 2)
   currency String  @default("INR")
+  description String?
 
   status   PaymentStatus   @default(PENDING)
   provider PaymentProvider
 
+  merchantTxnRef    String? @unique
+  utr               String? @unique
   providerOrderId   String?
   providerPaymentId String?
   providerSignature String?
+  upiUrl            String?
+  qrCodeBase64      String? @db.Text
+  providerResponse  Json?
+  expiresAt         DateTime?
+  verifiedAt        DateTime?
 
   failureReason String?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  invoice Invoice?
+
   @@index([userId])
   @@index([status])
   @@index([type])
+  @@index([merchantTxnRef])
+  @@index([utr])
+}
+
+model Invoice {
+  id            String   @id @default(uuid())
+  invoiceNumber String   @unique
+  paymentId     String   @unique
+  payment       Payment  @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+  filePath      String
+  publicUrl     String?
+  createdAt     DateTime @default(now())
+
+  @@index([invoiceNumber])
 }
 
 //////////////////////////////////////////////////////

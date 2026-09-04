@@ -1,0 +1,46 @@
+{
+  "info": {
+    "name": "Vastu UPI Payments",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "Create UPI Payment",
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
+        "url": "{{baseUrl}}/api/payments/create",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"amount\": 999,\n  \"description\": \"Test order\",\n  \"orderId\": \"{{orderId}}\"\n}"
+        }
+      }
+    },
+    {
+      "name": "Payment Status",
+      "request": {
+        "method": "GET",
+        "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
+        "url": "{{baseUrl}}/api/payments/status/{{transactionId}}"
+      }
+    },
+    {
+      "name": "Verify Payment",
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
+        "url": "{{baseUrl}}/api/payments/verify",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"transactionId\": \"{{transactionId}}\"\n}"
+        }
+      }
+    }
+  ],
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:3030" },
+    { "key": "token", "value": "" },
+    { "key": "transactionId", "value": "" },
+    { "key": "orderId", "value": "" }
+  ]
+}

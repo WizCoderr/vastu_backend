@@ -2,9 +2,16 @@ import "dotenv/config";
 import { PrismaClient } from "../generated/prisma";
 import { Pool } from "pg";
 import { PrismaPg } from "@prisma/adapter-pg";
+import { config } from "./config";
 
 const connectionString = `${process.env.DATABASE_URL}`;
-const pool = new Pool({ connectionString, ssl: { rejectUnauthorized: false } });
+const pool = new Pool({
+  connectionString,
+  ssl: { rejectUnauthorized: false },
+  max: config.database.poolMax,
+  idleTimeoutMillis: config.database.poolIdleTimeoutMs,
+  connectionTimeoutMillis: config.database.poolConnectionTimeoutMs,
+});
 const adapter = new PrismaPg(pool);
 
 /** Remote pooled DB + multi-query POS/order txs routinely exceed Prisma's 5s default. */

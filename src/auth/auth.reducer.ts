@@ -1,7 +1,7 @@
-import bcrypt from 'bcryptjs';
 import { createHash, randomBytes, randomInt } from 'crypto';
 import { prisma } from "../core/prisma";
-import { signToken } from '../core/jwt';
+import { signToken, signRefreshToken, createRefreshTokenRecord } from '../core/jwt';
+import { hashPassword, verifyPassword, needsRehash } from '../core/password';
 import { config } from '../core/config';
 import { EmailService } from '../notification/email.service';
 import logger from '../utils/logger';
@@ -30,7 +30,7 @@ export class AuthReducer {
             return Result.fail('User already exists');
         }
 
-        const hashedPassword = await bcrypt.hash(dto.password, 10);
+        const hashedPassword = await hashPassword(dto.password);
 
         const user = await prisma.user.create({
             data: {
@@ -43,9 +43,12 @@ export class AuthReducer {
         });
 
         const token = signToken({ userId: user.id, role: user.role });
+        const refreshToken = signRefreshToken({ userId: user.id, role: user.role });
+        await createRefreshTokenRecord(user.id, refreshToken);
 
         return Result.ok({
             token,
+            refreshToken,
             user: {
                 id: user.id,
                 email: user.email,
@@ -64,16 +67,27 @@ export class AuthReducer {
             return Result.fail('Invalid credentials');
         }
 
-        const isMatch = await bcrypt.compare(dto.password, user.password);
+        const isMatch = await verifyPassword(dto.password, user.password);
 
         if (!isMatch) {
             return Result.fail('Invalid credentials');
         }
 
+        if (await needsRehash(user.password)) {
+            const newHash = await hashPassword(dto.password);
+            await prisma.user.update({
+                where: { id: user.id },
+                data: { password: newHash },
+            });
+        }
+
         const token = signToken({ userId: user.id, role: user.role });
+        const refreshToken = signRefreshToken({ userId: user.id, role: user.role });
+        await createRefreshTokenRecord(user.id, refreshToken);
 
         return Result.ok({
             token,
+            refreshToken,
             user: {
                 id: user.id,
                 email: user.email,
@@ -249,7 +263,7 @@ export class AuthReducer {
 
     static async resetPassword(dto: ResetPasswordDto): Promise<Result<AuthMessageResponse>> {
         const tokenHash = this.hashResetToken(dto.token);
-        const passwordHash = await bcrypt.hash(dto.password, 10);
+        const passwordHash = await hashPassword(dto.password);
         const now = new Date();
 
         const result = await prisma.$transaction(async (tx) => {
@@ -291,6 +305,35 @@ export class AuthReducer {
         });
 
         return result;
+    }
+
+    static async refresh(refreshToken: string) {
+        const { verifyRefreshToken, signToken, signRefreshToken, createRefreshTokenRecord, revokeRefreshToken } = await import('../core/jwt');
+
+        const payload = await verifyRefreshToken(refreshToken);
+        if (!payload) return Result.fail('Invalid refresh token');
+
+        const user = await prisma.user.findUnique({ where: { id: payload.userId } });
+        if (!user) return Result.fail('User not found');
+
+        await revokeRefreshToken(refreshToken);
+
+        const token = signToken({ userId: user.id, role: user.role });
+        const newRefreshToken = signRefreshToken({ userId: user.id, role: user.role });
+        await createRefreshTokenRecord(user.id, newRefreshToken);
+
+        return Result.ok({
+            token,
+            refreshToken: newRefreshToken,
+            user: {
+                id: user.id,
+                email: user.email,
+                name: user.name,
+                role: user.role,
+                phoneNumber: user.phoneNumber,
+                enrolledCourseIds: user.enrolledCourseIds,
+            },
+        });
     }
 
     private static generateOtp(): string {

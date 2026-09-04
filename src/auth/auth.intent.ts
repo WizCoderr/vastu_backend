@@ -141,6 +141,20 @@ export class AuthIntent {
             return res.status(404).json(result);
         }
     }
+
+    static async refresh(req: Request, res: Response) {
+        const refreshToken = req.body?.refreshToken ?? req.cookies?.refreshToken;
+        if (!refreshToken) {
+            return res.status(400).json(Result.fail('refreshToken is required'));
+        }
+
+        const result = await AuthReducer.refresh(refreshToken);
+        if (!result.success) {
+            return res.status(401).json(result);
+        }
+
+        return res.status(200).json(result);
+    }
     static async updateProfile(req: AuthRequest, res: Response) {
         if (!req.user) return res.status(401).json(Result.fail('Unauthorized'));
 
