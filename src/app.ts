@@ -22,6 +22,7 @@ app.use(helmet());
 const allowedOrigins = [
   "https://admin.vastuarunsharma.com",
   "https://vastuarunsharma.com",
+  "https://www.vastuarunsharma.com",
   "https://api.vastuarunsharma.com",
   "http://127.0.0.1:3001",
   "http://localhost:3001",
