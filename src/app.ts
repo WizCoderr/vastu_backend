@@ -11,6 +11,7 @@ import instructorRoutes from "./routes/instructor.routes";
 import adminRoutes from "./routes/admin.routes";
 import publicRoutes from "./routes/public.routes";
 import remidiesRoutes from "./routes/remidies.route";
+import walletRoutes from "./wallet/wallet.routes";
 import { config } from "./config";
 import { auditLogMiddleware } from "./middleware/audit-log.middleware";
 import { pingRedis } from "./config/redis";
@@ -65,6 +66,7 @@ app.use("/api/instructor", instructorRoutes); // /api/instructor/courses
 app.use("/api/admin", adminRoutes); // /api/admin/enroll
 app.use("/api/payments", paymentRoutes); // /api/payments/create-intent
 app.use("/api/remidies", remidiesRoutes); // /api/remidies/user/* and /api/remidies/admin/*
+app.use("/api/wallet", walletRoutes);
 
 // Serve uploaded files
 app.use("/uploads", express.static("uploads"));
@@ -76,6 +78,7 @@ app.get("/health", async (req, res) => {
   res.status(redisOk ? 200 : 503).json({
     status: redisOk ? "ok" : "degraded",
     redis: redisOk,
+    googleWalletConfigured: coreConfig.googleWallet.configured,
     timestamp: new Date().toISOString(),
   });
 });

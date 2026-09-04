@@ -1,6 +1,6 @@
 # Vastu Backend
 
-A production-ready e-learning platform backend built with **Bun**, **Express**, **TypeScript**, **Prisma**, and **mongodb**.
+A production-ready e-learning platform backend built with **Bun**, **Express**, **TypeScript**, **Prisma**, and **MongoDB**.
 
 ## Architecture
 
@@ -14,8 +14,8 @@ This project strictly follows the **MVI (Model-View-Intent)** architecture:
 
 - **Runtime**: [Bun](https://bun.sh)
 - **Framework**: Express.js
-- **Database**: PostgreSQL
-- **ORM**: Prisma (with `@prisma/adapter-pg` for serverless/edge compatibility)
+- **Database**: MongoDB Atlas (Prisma 6.19 — see [docs/mongodb.md](docs/mongodb.md))
+- **ORM**: Prisma
 - **Auth**: JWT & Bcrypt
 - **Payments**: Stripe
 
@@ -26,6 +26,7 @@ This project strictly follows the **MVI (Model-View-Intent)** architecture:
 - **Enrollment**: Add-only lifetime access model.
 - **Progress**: Track lecture completion.
 - **Payments**: Stripe Payment Intent integration with Webhook support.
+- **Google Wallet**: Order receipt Generic passes (see [docs/google-wallet.md](docs/google-wallet.md)).
 
 ## Getting Started
 
@@ -70,6 +71,15 @@ This project strictly follows the **MVI (Model-View-Intent)** architecture:
     GOOGLE_PLACE_ID="ChIJ..."  # optional if using search query below
     GOOGLE_PLACE_SEARCH_QUERY="Vastu Arun Sharma Delhi"
     GOOGLE_REVIEWS_URL="https://maps.google.com/..."
+
+    # Google Wallet (product order receipts) — see docs/google-wallet.md
+    GOOGLE_CLOUD_PROJECT_ID=
+    GOOGLE_WALLET_ISSUER_ID=
+    GOOGLE_SERVICE_ACCOUNT_EMAIL=
+    GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY=
+    GOOGLE_WALLET_CLASS_SUFFIX=vastu_order_receipt
+    GOOGLE_WALLET_ORIGINS=https://vastuarunsharma.com,https://www.vastuarunsharma.com,http://localhost:5173
+    GOOGLE_WALLET_USE_MOCK=false
     ```
 
 3.  **Database Migration**

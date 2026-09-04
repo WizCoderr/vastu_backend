@@ -4,6 +4,7 @@ import { AdminIntent } from '../admin/admin.intent';
 import liveClassAdminRoutes from '../live-class/live-class.admin.routes';
 import { remidiesAdminRouter } from '../remidies/remidies.routes';
 import whatsappRoutes from '../whatsapp/whatsapp.routes';
+import { walletAdminRouter } from '../wallet/wallet.routes';
 
 const router = Router();
 
@@ -30,5 +31,10 @@ router.use('/remidies', requireAdmin, remidiesAdminRouter);
 // WHATSAPP ADMIN ROUTES
 // =============================================================================
 router.use('/whatsapp', requireAdmin, whatsappRoutes);
+
+// =============================================================================
+// GOOGLE WALLET ADMIN
+// =============================================================================
+router.use('/wallet', walletAdminRouter);
 
 export default router;

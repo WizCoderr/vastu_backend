@@ -316,6 +316,9 @@ export class UpiPaymentService {
               referenceId: payment.order.id,
             });
           }
+
+          const { WalletReducer } = await import('../wallet/wallet.reducer');
+          void WalletReducer.upsertPendingPassForOrder(payment.order.id, payment.userId);
         }
 
         await enqueueInvoiceGeneration(payment.id);

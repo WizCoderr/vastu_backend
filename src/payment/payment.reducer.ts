@@ -372,6 +372,9 @@ export class PaymentReducer {
             referenceId: order.id,
           });
         }
+
+        const { WalletReducer } = await import("../wallet/wallet.reducer");
+        void WalletReducer.upsertPendingPassForOrder(order.id, payment.userId);
       }
 
       return Result.ok({ success: true, paymentId: payment.id });

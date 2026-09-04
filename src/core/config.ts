@@ -130,4 +130,28 @@ export const config = {
         refreshTtlDays: parseInteger(process.env.JWT_REFRESH_TTL_DAYS, 30),
         accessTtlMinutes: parseInteger(process.env.JWT_ACCESS_TTL_MINUTES, 60),
     },
+
+    googleWallet: {
+        projectId: trimEnv(process.env.GOOGLE_CLOUD_PROJECT_ID),
+        issuerId: trimEnv(process.env.GOOGLE_WALLET_ISSUER_ID),
+        serviceAccountEmail: trimEnv(process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL),
+        /** PEM private key; newlines may be escaped as \n in env */
+        privateKey: (() => {
+            const raw = trimEnv(process.env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY);
+            if (!raw) return undefined;
+            return raw.replace(/\\n/g, '\n');
+        })(),
+        classSuffix: trimEnv(process.env.GOOGLE_WALLET_CLASS_SUFFIX) || 'vastu_order_receipt',
+        origins: (process.env.GOOGLE_WALLET_ORIGINS ||
+            'https://vastuarunsharma.com,https://www.vastuarunsharma.com,http://localhost:5173,http://localhost:3001')
+            .split(',')
+            .map((o) => o.trim())
+            .filter(Boolean),
+        logoUri: trimEnv(process.env.GOOGLE_WALLET_LOGO_URI) ||
+            'https://vastuarunsharma.com/favicon.ico',
+        hexBackgroundColor: trimEnv(process.env.GOOGLE_WALLET_HEX_BG) || '#1B4332',
+        get configured() {
+            return !!(this.issuerId && this.serviceAccountEmail && this.privateKey);
+        },
+    },
 };

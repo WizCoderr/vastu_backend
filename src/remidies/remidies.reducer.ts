@@ -831,7 +831,7 @@ export const createQuickSale = async (params: {
   customerCity?: string;
   customerState?: string;
 }) => {
-  return prisma.$transaction(async (tx) => {
+  const result = await prisma.$transaction(async (tx) => {
     const productIds = [...new Set(params.items.map((i) => i.productId))];
     const [products, settings] = await Promise.all([
       tx.product.findMany({ where: { id: { in: productIds } } }),
@@ -943,6 +943,16 @@ export const createQuickSale = async (params: {
 
     return { order, stockChanges };
   }, CASH_SALE_TX);
+
+  // Soft-create wallet receipt pass for POS cash sales (admin user owns the order row).
+  try {
+    const { WalletReducer } = await import('../wallet/wallet.reducer');
+    void WalletReducer.upsertPendingPassForOrder(result.order.id, params.adminUserId);
+  } catch {
+    // non-blocking
+  }
+
+  return result;
 };
 
 export const updateCashSale = async (params: {

@@ -4,7 +4,8 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
+  provider = "mongodb"
+  url      = env("DATABASE_URL")
 }
 
 //////////////////////////////////////////////////////
@@ -12,7 +13,7 @@ datasource db {
 //////////////////////////////////////////////////////
 
 model User {
-  id          String   @id @default(uuid())
+  id          String   @id @default(uuid()) @map("_id")
   email       String   @unique
   password    String
   name        String?
@@ -21,49 +22,50 @@ model User {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  enrollments      Enrollment[]
-  progress         Progress[]
-  payments         Payment[]
+  enrollments         Enrollment[]
+  progress            Progress[]
+  payments            Payment[]
   passwordResetTokens PasswordResetToken[]
-  refreshTokens    RefreshToken[]
-  studentPayments  StudentPayment[]
-  deviceTokens     DeviceToken[]
-  notificationLogs NotificationLog[]
+  refreshTokens       RefreshToken[]
+  studentPayments     StudentPayment[]
+  deviceTokens        DeviceToken[]
+  notificationLogs    NotificationLog[]
 
-  cart   Cart?
-  orders Order[]
+  cart         Cart?
+  orders       Order[]
+  walletPasses WalletPass[]
 
   enrolledCourseIds String[]
 
-  assignedCoupons Coupon[] @relation("UserCoupons")
+  assignedCoupons Coupon[]      @relation("UserCoupons")
   couponGrants    CouponGrant[]
 }
 
 model RefreshToken {
-  id        String   @id @default(uuid())
+  id        String    @id @default(uuid()) @map("_id")
   userId    String
-  tokenHash String   @unique
+  tokenHash String    @unique
   expiresAt DateTime
   revokedAt DateTime?
-  createdAt DateTime @default(now())
+  createdAt DateTime  @default(now())
 
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id])
 
   @@index([userId])
   @@index([expiresAt])
 }
 
 model PasswordResetToken {
-  id        String   @id @default(uuid())
+  id        String    @id @default(uuid()) @map("_id")
   userId    String
-  tokenHash String   @unique
+  tokenHash String    @unique
   expiresAt DateTime
   usedAt    DateTime?
-  createdAt DateTime @default(now())
+  createdAt DateTime  @default(now())
 
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id])
 
-  @@index([userId, expiresAt])
+  @@index([userId])
   @@index([expiresAt])
 }
 
@@ -77,11 +79,11 @@ enum PaymentMode {
 }
 
 model Course {
-  id           String      @id @default(uuid())
+  id           String      @id @default(uuid()) @map("_id")
   title        String
   description  String?
   thumbnail    String?
-  price        Decimal     @db.Decimal(10, 2)
+  price        Float
   published    Boolean     @default(false)
   isVisible    Boolean     @default(true)
   instructorId String
@@ -105,18 +107,18 @@ model Course {
 }
 
 model CoursePaymentPlan {
-  id           String  @id @default(uuid())
+  id           String  @id @default(uuid()) @map("_id")
   courseId     String
   stageName    String
   description  String?
-  amount       Decimal @db.Decimal(10, 2)
+  amount       Float
   dueAfterDays Int     @default(0)
   orderIndex   Int
 
   startDate DateTime?
   endDate   DateTime?
 
-  course Course @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  course Course @relation(fields: [courseId], references: [id])
 
   @@index([courseId])
 }
@@ -127,7 +129,7 @@ enum ResourceType {
 }
 
 model CourseResource {
-  id        String       @id @default(uuid())
+  id        String       @id @default(uuid()) @map("_id")
   courseId  String
   title     String
   s3Key     String
@@ -136,29 +138,29 @@ model CourseResource {
   createdAt DateTime     @default(now())
   updatedAt DateTime     @updatedAt
 
-  course Course @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  course Course @relation(fields: [courseId], references: [id])
 }
 
 model Section {
-  id         String @id @default(uuid())
+  id         String @id @default(uuid()) @map("_id")
   title      String
   courseId   String
   orderIndex Int    @default(1)
 
-  course      Course      @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  course      Course      @relation(fields: [courseId], references: [id])
   lectures    Lecture[]
   liveClasses LiveClass[]
 
-  @@index([courseId, orderIndex])
+  @@index([courseId])
 }
 
 model Lecture {
-  id        String @id @default(uuid())
+  id        String @id @default(uuid()) @map("_id")
   title     String
   videoUrl  String
   sectionId String
 
-  section  Section    @relation(fields: [sectionId], references: [id], onDelete: Cascade)
+  section  Section    @relation(fields: [sectionId], references: [id])
   progress Progress[]
 
   videoProvider String? @default("cloudinary")
@@ -182,7 +184,7 @@ enum EnrollmentStatus {
 }
 
 model Enrollment {
-  id           String           @id @default(uuid())
+  id           String           @id @default(uuid()) @map("_id")
   userId       String
   courseId     String
   serialNumber String?
@@ -190,8 +192,8 @@ model Enrollment {
   createdAt    DateTime         @default(now())
   expiresAt    DateTime?
 
-  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
-  course Course @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id])
+  course Course @relation(fields: [courseId], references: [id])
 
   @@unique([userId, courseId])
 }
@@ -208,20 +210,20 @@ enum StudentPaymentStatus {
 }
 
 model StudentPayment {
-  id        String  @id @default(uuid())
+  id        String  @id @default(uuid()) @map("_id")
   userId    String
   courseId  String
   planId    String?
   stageName String
-  amount    Decimal @db.Decimal(10, 2)
+  amount    Float
 
-  merchantTxnRef    String? @unique
-  utr               String? @unique
+  merchantTxnRef    String?
+  utr               String?
   providerPaymentId String?
   razorpayOrderId   String?
   razorpayPaymentId String?
   upiUrl            String?
-  qrCodeBase64      String? @db.Text
+  qrCodeBase64      String?
   providerResponse  Json?
   expiresAt         DateTime?
   verifiedAt        DateTime?
@@ -234,12 +236,14 @@ model StudentPayment {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
-  course Course @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id])
+  course Course @relation(fields: [courseId], references: [id])
 
   @@index([userId])
   @@index([courseId])
   @@index([status])
+  @@index([merchantTxnRef])
+  @@index([utr])
 }
 
 //////////////////////////////////////////////////////
@@ -247,13 +251,13 @@ model StudentPayment {
 //////////////////////////////////////////////////////
 
 model Progress {
-  id        String  @id @default(uuid())
+  id        String  @id @default(uuid()) @map("_id")
   userId    String
   lectureId String
   completed Boolean @default(false)
 
-  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
-  lecture Lecture @relation(fields: [lectureId], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [userId], references: [id])
+  lecture Lecture @relation(fields: [lectureId], references: [id])
 
   @@unique([userId, lectureId])
 }
@@ -281,9 +285,9 @@ enum PaymentProvider {
 }
 
 model Payment {
-  id     String @id @default(uuid())
+  id     String @id @default(uuid()) @map("_id")
   userId String
-  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id])
 
   type PaymentType
 
@@ -293,20 +297,20 @@ model Payment {
   orderId String? @unique
   order   Order?  @relation(fields: [orderId], references: [id])
 
-  amount   Decimal @db.Decimal(10, 2)
-  currency String  @default("INR")
+  amount      Float
+  currency    String  @default("INR")
   description String?
 
   status   PaymentStatus   @default(PENDING)
   provider PaymentProvider
 
-  merchantTxnRef    String? @unique
-  utr               String? @unique
+  merchantTxnRef    String?
+  utr               String?
   providerOrderId   String?
   providerPaymentId String?
   providerSignature String?
   upiUrl            String?
-  qrCodeBase64      String? @db.Text
+  qrCodeBase64      String?
   providerResponse  Json?
   expiresAt         DateTime?
   verifiedAt        DateTime?
@@ -326,15 +330,13 @@ model Payment {
 }
 
 model Invoice {
-  id            String   @id @default(uuid())
+  id            String   @id @default(uuid()) @map("_id")
   invoiceNumber String   @unique
   paymentId     String   @unique
-  payment       Payment  @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+  payment       Payment  @relation(fields: [paymentId], references: [id])
   filePath      String
   publicUrl     String?
   createdAt     DateTime @default(now())
-
-  @@index([invoiceNumber])
 }
 
 //////////////////////////////////////////////////////
@@ -348,7 +350,7 @@ enum LiveClassStatus {
 }
 
 model LiveClass {
-  id        String  @id @default(uuid())
+  id        String  @id @default(uuid()) @map("_id")
   courseId  String
   sectionId String?
 
@@ -366,8 +368,8 @@ model LiveClass {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  course  Course   @relation(fields: [courseId], references: [id], onDelete: Cascade)
-  section Section? @relation(fields: [sectionId], references: [id], onDelete: Cascade)
+  course  Course   @relation(fields: [courseId], references: [id])
+  section Section? @relation(fields: [sectionId], references: [id])
 
   @@index([courseId])
   @@index([scheduledAt])
@@ -378,20 +380,20 @@ model LiveClass {
 //////////////////////////////////////////////////////
 
 model DeviceToken {
-  id        String   @id @default(uuid())
+  id        String   @id @default(uuid()) @map("_id")
   userId    String
   token     String
   platform  String   @default("android")
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id])
 
   @@unique([userId, token])
 }
 
 model NotificationLog {
-  id          String    @id @default(uuid())
+  id          String    @id @default(uuid()) @map("_id")
   userId      String
   type        String
   title       String
@@ -403,7 +405,7 @@ model NotificationLog {
   error       String?
   createdAt   DateTime  @default(now())
 
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id])
 
   @@index([userId])
 }
@@ -413,7 +415,7 @@ model NotificationLog {
 //////////////////////////////////////////////////////
 
 model Category {
-  id          String   @id @default(uuid())
+  id          String   @id @default(uuid()) @map("_id")
   name        String
   description String?
   image       String?
@@ -427,22 +429,22 @@ model Category {
 }
 
 model Product {
-  id          String  @id @default(uuid())
-  name        String
-  description String?
-  images      Json    @default("[]")
-  price         Decimal  @db.Decimal(10, 2)
-  purchasePrice Decimal? @db.Decimal(10, 2) // weighted average cost (WAC)
-  lastPurchasePrice Decimal? @db.Decimal(10, 2)
-  inventoryValue Decimal @default(0) @db.Decimal(12, 2) // on-hand cost value (source of truth)
-  stock         Int      @default(0)
-  isActive    Boolean @default(true)
+  id                String  @id @default(uuid()) @map("_id")
+  name              String
+  description       String?
+  images            Json    @default("[]")
+  price             Float
+  purchasePrice     Float?
+  lastPurchasePrice Float?
+  inventoryValue    Float   @default(0)
+  stock             Int     @default(0)
+  isActive          Boolean @default(true)
 
   lowStockThreshold   Int?
   lowStockAlertSentAt DateTime?
 
   categoryId String
-  category   Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  category   Category @relation(fields: [categoryId], references: [id])
 
   orderItems     OrderItem[]
   cartItems      CartItem[]
@@ -457,7 +459,7 @@ model Product {
 }
 
 model StockSettings {
-  id                      String   @id @default("default")
+  id                      String   @id @default("default") @map("_id")
   globalLowStockThreshold Int      @default(5)
   updatedAt               DateTime @updatedAt
 }
@@ -470,7 +472,7 @@ enum StockMovementType {
 }
 
 model StockMovement {
-  id              String            @id @default(uuid())
+  id              String            @id @default(uuid()) @map("_id")
   productId       String
   type            StockMovementType
   quantityChange  Int
@@ -479,12 +481,12 @@ model StockMovement {
   reason          String?
   referenceId     String?
   createdBy       String?
-  unitCost        Decimal?          @db.Decimal(10, 2)
-  previousAvgCost Decimal?          @db.Decimal(10, 2)
-  newAvgCost      Decimal?          @db.Decimal(10, 2)
+  unitCost        Float?
+  previousAvgCost Float?
+  newAvgCost      Float?
   createdAt       DateTime          @default(now())
 
-  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  product Product @relation(fields: [productId], references: [id])
 
   @@index([productId])
   @@index([createdAt])
@@ -506,7 +508,7 @@ enum WhatsAppNotificationStatus {
 }
 
 model WhatsAppNotification {
-  id             String                     @id @default(uuid())
+  id             String                     @id @default(uuid()) @map("_id")
   type           WhatsAppNotificationType
   recipientPhone String
   message        String
@@ -522,22 +524,22 @@ model WhatsAppNotification {
 }
 
 model Cart {
-  id        String     @id @default(uuid())
+  id        String     @id @default(uuid()) @map("_id")
   userId    String     @unique
-  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user      User       @relation(fields: [userId], references: [id])
   items     CartItem[]
   createdAt DateTime   @default(now())
   updatedAt DateTime   @updatedAt
 }
 
 model CartItem {
-  id        String @id @default(uuid())
+  id        String @id @default(uuid()) @map("_id")
   cartId    String
   productId String
   quantity  Int    @default(1)
 
-  cart    Cart    @relation(fields: [cartId], references: [id], onDelete: Cascade)
-  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  cart    Cart    @relation(fields: [cartId], references: [id])
+  product Product @relation(fields: [productId], references: [id])
 
   @@unique([cartId, productId])
 }
@@ -551,15 +553,15 @@ enum OrderStatus {
 }
 
 model Order {
-  id     String @id @default(uuid())
+  id     String @id @default(uuid()) @map("_id")
   userId String
-  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id])
 
-  subtotalAmount Decimal  @db.Decimal(10, 2) @default(0)
-  bulkDiscount   Decimal  @db.Decimal(10, 2) @default(0)
-  couponDiscount Decimal  @db.Decimal(10, 2) @default(0)
-  shippingCost   Decimal? @db.Decimal(10, 2) @default(0)
-  totalAmount    Decimal  @db.Decimal(10, 2)
+  subtotalAmount Float  @default(0)
+  bulkDiscount   Float  @default(0)
+  couponDiscount Float  @default(0)
+  shippingCost   Float? @default(0)
+  totalAmount    Float
   status         OrderStatus @default(PENDING)
 
   shippingName    String
@@ -573,8 +575,9 @@ model Order {
   coupon      Coupon?      @relation("OrderCoupon", fields: [couponId], references: [id])
   couponUsage CouponUsage?
 
-  payment Payment?
-  items   OrderItem[]
+  payment    Payment?
+  items      OrderItem[]
+  walletPass WalletPass?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -584,16 +587,15 @@ model Order {
 }
 
 model OrderItem {
-  id        String @id @default(uuid())
-  orderId   String
-  productId String
+  id             String  @id @default(uuid()) @map("_id")
+  orderId        String
+  productId      String
+  quantity       Int
+  price          Float
+  unitCostAtSale Float?
 
-  quantity Int
-  price    Decimal @db.Decimal(10, 2)
-  unitCostAtSale Decimal? @db.Decimal(10, 2)
-
-  order   Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  order   Order   @relation(fields: [orderId], references: [id])
+  product Product @relation(fields: [productId], references: [id])
 
   @@index([orderId])
 }
@@ -625,21 +627,21 @@ enum CouponGrantStatus {
 }
 
 model Coupon {
-  id            String       @id @default(uuid())
-  code          String       @unique
+  id            String             @id @default(uuid()) @map("_id")
+  code          String             @unique
   name          String?
   description   String?
   discountType  DiscountType
-  discountValue Decimal      @db.Decimal(10, 2)
+  discountValue Float
   maxUses       Int
-  usedCount     Int          @default(0)
+  usedCount     Int                @default(0)
   expiresAt     DateTime?
-  isActive      Boolean      @default(true)
+  isActive      Boolean            @default(true)
   productScope  CouponProductScope @default(ALL)
-  requiresGrant Boolean      @default(false)
+  requiresGrant Boolean            @default(false)
 
   assignedUserId String?
-  assignedUser   User?        @relation("UserCoupons", fields: [assignedUserId], references: [id], onDelete: Cascade)
+  assignedUser   User?   @relation("UserCoupons", fields: [assignedUserId], references: [id])
 
   orders     Order[]          @relation("OrderCoupon")
   usages     CouponUsage[]
@@ -650,12 +652,11 @@ model Coupon {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  @@index([code])
   @@index([assignedUserId])
 }
 
 model CouponGrant {
-  id         String            @id @default(uuid())
+  id         String            @id @default(uuid()) @map("_id")
   couponId   String
   userId     String
   status     CouponGrantStatus @default(ACTIVE)
@@ -663,57 +664,109 @@ model CouponGrant {
   redeemedAt DateTime?
   orderId    String?
 
-  coupon Coupon @relation(fields: [couponId], references: [id], onDelete: Cascade)
-  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  coupon Coupon @relation(fields: [couponId], references: [id])
+  user   User   @relation(fields: [userId], references: [id])
 
-  @@index([couponId, userId, status])
-  @@index([userId, status])
+  @@index([couponId])
+  @@index([userId])
   @@index([orderId])
 }
 
 model CouponProduct {
+  id        String  @id @default(uuid()) @map("_id")
   couponId  String
   productId String
-  coupon    Coupon  @relation(fields: [couponId], references: [id], onDelete: Cascade)
-  product   Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  coupon    Coupon  @relation(fields: [couponId], references: [id])
+  product   Product @relation(fields: [productId], references: [id])
 
-  @@id([couponId, productId])
+  @@unique([couponId, productId])
   @@index([productId])
 }
 
 model CouponCategory {
+  id            String   @id @default(uuid()) @map("_id")
   couponId      String
   categoryId    String
-  discountValue Decimal  @db.Decimal(10, 2)
-  coupon        Coupon   @relation(fields: [couponId], references: [id], onDelete: Cascade)
-  category      Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  discountValue Float
+  coupon        Coupon   @relation(fields: [couponId], references: [id])
+  category      Category @relation(fields: [categoryId], references: [id])
 
-  @@id([couponId, categoryId])
+  @@unique([couponId, categoryId])
   @@index([categoryId])
 }
 
 model CouponUsage {
-  id       String   @id @default(uuid())
+  id       String   @id @default(uuid()) @map("_id")
   couponId String
   orderId  String   @unique
   userId   String
   usedAt   DateTime @default(now())
 
-  coupon Coupon @relation(fields: [couponId], references: [id], onDelete: Cascade)
-  order  Order  @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  coupon Coupon @relation(fields: [couponId], references: [id])
+  order  Order  @relation(fields: [orderId], references: [id])
 
   @@index([couponId])
   @@index([userId])
 }
 
 model BulkDiscountTier {
-  id              String       @id @default(uuid())
+  id              String       @id @default(uuid()) @map("_id")
   type            BulkTierType
-  minThreshold    Decimal      @db.Decimal(10, 2)
-  discountPercent Decimal      @db.Decimal(5, 2)
+  minThreshold    Float
+  discountPercent Float
   isActive        Boolean      @default(true)
   createdAt       DateTime     @default(now())
   updatedAt       DateTime     @updatedAt
 
-  @@index([type, isActive])
+  @@index([type])
+  @@index([isActive])
+}
+
+//////////////////////////////////////////////////////
+// GOOGLE WALLET — ORDER RECEIPTS
+//////////////////////////////////////////////////////
+
+enum WalletPassType {
+  ORDER_RECEIPT
+}
+
+enum WalletPassStatus {
+  PENDING
+  ACTIVE
+  INACTIVE
+  EXPIRED
+}
+
+model WalletPass {
+  id                   String           @id @default(uuid()) @map("_id")
+  userId               String
+  orderId              String           @unique
+  googleWalletClassId  String?
+  googleWalletObjectId String?
+  passType             WalletPassType   @default(ORDER_RECEIPT)
+  status               WalletPassStatus @default(PENDING)
+  passData             Json?
+  createdAt            DateTime         @default(now())
+  updatedAt            DateTime         @updatedAt
+
+  user   User          @relation(fields: [userId], references: [id])
+  order  Order         @relation(fields: [orderId], references: [id])
+  events WalletEvent[]
+
+  @@index([userId])
+  @@index([status])
+  @@index([googleWalletObjectId])
+}
+
+model WalletEvent {
+  id           String   @id @default(uuid()) @map("_id")
+  walletPassId String
+  eventType    String
+  eventData    Json?
+  createdAt    DateTime @default(now())
+
+  walletPass WalletPass @relation(fields: [walletPassId], references: [id])
+
+  @@index([walletPassId])
+  @@index([createdAt])
 }
