@@ -5,9 +5,29 @@ import { PrismaPg } from "@prisma/adapter-pg";
 import { config } from "./config";
 
 const connectionString = `${process.env.DATABASE_URL}`;
+
+function resolveSsl(url: string): false | { rejectUnauthorized: boolean } {
+  if (/sslmode=disable/i.test(url)) return false;
+  if (/sslmode=(require|verify-full|verify-ca|prefer)/i.test(url)) {
+    return { rejectUnauthorized: false };
+  }
+
+  try {
+    const host = new URL(url.replace(/^postgres(ql)?:/i, "http:")).hostname;
+    if (host === "postgres" || host === "localhost" || host === "127.0.0.1") {
+      return false;
+    }
+  } catch {
+    // fall through to remote default
+  }
+
+  // Managed/remote Postgres usually requires TLS
+  return { rejectUnauthorized: false };
+}
+
 const pool = new Pool({
   connectionString,
-  ssl: { rejectUnauthorized: false },
+  ssl: resolveSsl(connectionString),
   max: config.database.poolMax,
   idleTimeoutMillis: config.database.poolIdleTimeoutMs,
   connectionTimeoutMillis: config.database.poolConnectionTimeoutMs,
