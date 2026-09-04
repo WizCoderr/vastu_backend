@@ -1,24 +1,6 @@
 version: "3.9"
 
 services:
-  postgres:
-    image: postgres:16-alpine
-    container_name: vastu_postgres
-    restart: always
-    environment:
-      POSTGRES_USER: vastu
-      POSTGRES_PASSWORD: vastu
-      POSTGRES_DB: vastu
-    ports:
-      - "127.0.0.1:5432:5432"
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U vastu -d vastu"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
   redis:
     image: redis:7-alpine
     container_name: vastu_redis
@@ -39,14 +21,11 @@ services:
     container_name: vastu_backend
     restart: always
     depends_on:
-      postgres:
-        condition: service_healthy
       redis:
         condition: service_healthy
     env_file:
       - .env
     environment:
-      DATABASE_URL: postgresql://vastu:vastu@postgres:5432/vastu
       REDIS_URL: redis://redis:6379
       REDIS_ENABLED: "true"
       PAYMENT_PROVIDER: upi
@@ -68,14 +47,11 @@ services:
     restart: always
     command: ["bun", "run", "src/worker.ts"]
     depends_on:
-      postgres:
-        condition: service_healthy
       redis:
         condition: service_healthy
     env_file:
       - .env
     environment:
-      DATABASE_URL: postgresql://vastu:vastu@postgres:5432/vastu
       REDIS_URL: redis://redis:6379
       REDIS_ENABLED: "true"
       PROCESS_ROLE: worker
@@ -87,7 +63,6 @@ services:
 
 volumes:
   whatsapp_session:
-  postgres_data:
   redis_data:
   invoice_storage:
 
