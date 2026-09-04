@@ -80,6 +80,7 @@ services:
       REDIS_ENABLED: "true"
       PROCESS_ROLE: worker
       RUN_PAYMENT_WORKERS: "true"
+      RUN_MIGRATIONS: "false"
       WHATSAPP_ENABLED: "false"
     volumes:
       - invoice_storage:/app/storage/invoices

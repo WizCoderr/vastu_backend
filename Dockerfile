@@ -11,6 +11,7 @@ FROM base AS build
 ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
 COPY --from=deps /app/node_modules ./node_modules
 COPY prisma ./prisma/
+COPY prisma.config.ts ./
 COPY package.json bun.lock* ./
 RUN bunx prisma generate
 
@@ -55,6 +56,7 @@ COPY --from=deps /app/node_modules ./node_modules
 COPY --from=build /app/src/generated ./src/generated
 COPY package.json bun.lock* ./
 COPY prisma ./prisma/
+COPY prisma.config.ts ./
 COPY src ./src/
 COPY docker/entrypoint-api.sh /entrypoint-api.sh
 
