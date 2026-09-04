@@ -61,7 +61,10 @@ COPY src ./src/
 COPY --from=build /app/src/generated ./src/generated
 COPY docker/entrypoint-api.sh /entrypoint-api.sh
 
-RUN chmod +x /entrypoint-api.sh \
+# Regenerate on the runtime image (OpenSSL 3) so Query Engine matches debian-openssl-3.0.x
+ENV DATABASE_URL="mongodb://localhost:27017/vastu"
+RUN ./node_modules/.bin/prisma generate \
+    && chmod +x /entrypoint-api.sh \
     && mkdir -p storage/invoices uploads .wwebjs_auth \
     && addgroup --system vastu \
     && adduser --system --ingroup vastu vastu \
