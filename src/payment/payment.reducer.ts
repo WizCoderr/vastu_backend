@@ -35,8 +35,11 @@ export class PaymentReducer {
       totalFee: course ? Number(course.price) : 0,
       payments: payments.map((p) => ({
         id: p.id,
+        courseId,
         stage: p.stageName,
-        amount: p.amount,
+        stageName: p.stageName,
+        title: p.stageName,
+        amount: Number(p.amount),
         status: p.status,
         dueDate: p.dueDate,
         paidAt: p.paidAt,
@@ -134,70 +137,111 @@ export class PaymentReducer {
       const valid = verifyRazorpaySignature(orderId, paymentId, signature);
       if (!valid) return Result.fail("Invalid payment signature");
 
-      const course = await prisma.course.findUnique({ where: { id: courseId } });
-      const user = await prisma.user.findUnique({ where: { id: userId } });
-
-      if (!course || !user) return Result.fail("Course or User not found");
-
-      const studentPayment = await prisma.studentPayment.findFirst({
-        where: { razorpayOrderId: orderId },
-      });
-
-      if (!studentPayment) {
-        return Result.fail("Associated payment record not found");
-      }
-
-      // 1. Update StudentPayment status
-      const updatedPayment = await prisma.studentPayment.update({
-        where: { id: studentPayment.id },
-        data: {
-          status: "PAID",
-          razorpayPaymentId: paymentId,
-          paidAt: new Date(),
-        },
-      });
-
-      // 2. Enrollment Logic
-      let enrollment = await EnrollmentRepository.findEnrollment(
+      return this.fulfillCoursePaymentByRazorpayOrder(
+        orderId,
+        paymentId,
         userId,
         courseId,
       );
-
-      if (!enrollment) {
-        enrollment = await EnrollmentRepository.createEnrollment(userId, courseId);
-      } else {
-        // Check if we need to reactivate enrollment if it was overdue
-        const overdueCount = await prisma.studentPayment.count({
-          where: { userId, courseId, status: "OVERDUE" },
-        });
-
-        if (overdueCount === 0 && enrollment.status === "PAYMENT_DUE") {
-          await prisma.enrollment.update({
-            where: { id: enrollment.id },
-            data: { status: "ACTIVE" },
-          });
-        }
-      }
-
-      // 3. Send Receipt Email
-      await EmailService.sendPaymentReceipt({
-        receiptId: paymentId,
-        date: new Date(),
-        userName: user.name || "Student",
-        userEmail: user.email,
-        amount: Number(studentPayment.amount),
-        courseTitle: course.title,
-        serialNumber: enrollment?.serialNumber || undefined,
-      });
-
-      return Result.ok({
-        paymentId: updatedPayment.id,
-        status: "PAID",
-        serialNumber: enrollment?.serialNumber,
-      });
     } catch (error: any) {
       return Result.fail(`Verification failed: ${error.message}`);
     }
+  }
+
+  /**
+   * Idempotent course/installment fulfillment after Razorpay capture.
+   * Used by client verify and webhook.
+   */
+  static async fulfillCoursePaymentByRazorpayOrder(
+    rzpOrderId: string,
+    rzpPaymentId: string,
+    expectedUserId?: string,
+    expectedCourseId?: string,
+  ) {
+    const studentPayment = await prisma.studentPayment.findFirst({
+      where: { razorpayOrderId: rzpOrderId },
+      include: { course: true, user: true },
+    });
+
+    if (!studentPayment) {
+      return Result.fail("Associated payment record not found");
+    }
+
+    if (expectedUserId && studentPayment.userId !== expectedUserId) {
+      return Result.fail("Unauthorized");
+    }
+    if (expectedCourseId && studentPayment.courseId !== expectedCourseId) {
+      return Result.fail("Course mismatch");
+    }
+
+    if (studentPayment.status === "PAID") {
+      const enrollment = await EnrollmentRepository.findEnrollment(
+        studentPayment.userId,
+        studentPayment.courseId,
+      );
+      return Result.ok({
+        paymentId: studentPayment.id,
+        status: "PAID",
+        serialNumber: enrollment?.serialNumber,
+        alreadyPaid: true,
+      });
+    }
+
+    const course = studentPayment.course;
+    const user = studentPayment.user;
+    if (!course || !user) return Result.fail("Course or User not found");
+
+    const updatedPayment = await prisma.studentPayment.update({
+      where: { id: studentPayment.id },
+      data: {
+        status: "PAID",
+        razorpayPaymentId: rzpPaymentId,
+        paidAt: new Date(),
+      },
+    });
+
+    let enrollment = await EnrollmentRepository.findEnrollment(
+      studentPayment.userId,
+      studentPayment.courseId,
+    );
+
+    if (!enrollment) {
+      enrollment = await EnrollmentRepository.createEnrollment(
+        studentPayment.userId,
+        studentPayment.courseId,
+      );
+    } else {
+      const overdueCount = await prisma.studentPayment.count({
+        where: {
+          userId: studentPayment.userId,
+          courseId: studentPayment.courseId,
+          status: "OVERDUE",
+        },
+      });
+
+      if (overdueCount === 0 && enrollment.status === "PAYMENT_DUE") {
+        await prisma.enrollment.update({
+          where: { id: enrollment.id },
+          data: { status: "ACTIVE" },
+        });
+      }
+    }
+
+    await EmailService.sendPaymentReceipt({
+      receiptId: rzpPaymentId,
+      date: new Date(),
+      userName: user.name || "Student",
+      userEmail: user.email,
+      amount: Number(studentPayment.amount),
+      courseTitle: course.title,
+      serialNumber: enrollment?.serialNumber || undefined,
+    });
+
+    return Result.ok({
+      paymentId: updatedPayment.id,
+      status: "PAID",
+      serialNumber: enrollment?.serialNumber,
+    });
   }
 
   // -------------------------------------------------------------------------
@@ -286,6 +330,7 @@ export class PaymentReducer {
 
       return Result.ok({
         orderId: rzpOrder.id,
+        shopOrderId: order.id,
         amount: rzpOrder.amount,
         currency: rzpOrder.currency,
         keyId,
@@ -312,75 +357,110 @@ export class PaymentReducer {
       );
       if (!valid) return Result.fail("Invalid payment signature");
 
-      const payment = await prisma.payment.findUnique({
-        where: { orderId },
-        include: {
-          user: true,
-          order: {
-            include: { items: { include: { product: true } } },
-          },
-        },
-      });
-
-      if (!payment) return Result.fail("Payment record not found");
-
-      await prisma.$transaction([
-        prisma.payment.update({
-          where: { id: payment.id },
-          data: {
-            status: "COMPLETED",
-            providerPaymentId: rzpPaymentId,
-            providerSignature: signature,
-          },
-        }),
-        prisma.order.update({
-          where: { id: orderId },
-          data: { status: "PAID" },
-        }),
-      ]);
-
-      // Send Email Receipt for Products
-      if (payment.user && payment.order) {
-        const order = payment.order;
-        const subtotal = Number(order.subtotalAmount);
-        const bulk = Number(order.bulkDiscount);
-        const coupon = Number(order.couponDiscount);
-        await EmailService.sendPaymentReceipt({
-          receiptId: rzpPaymentId,
-          date: new Date(),
-          userName: payment.user.name || "Customer",
-          userEmail: payment.user.email,
-          amount: Number(payment.amount),
-          items: order.items.map((item) => ({
-            name: item.product.name,
-            quantity: item.quantity,
-            price: Number(item.price),
-          })),
-          subtotalAmount: subtotal,
-          bulkDiscount: bulk > 0 ? bulk : undefined,
-          couponDiscount: coupon > 0 ? coupon : undefined,
-        });
-
-        if (order.shippingPhone) {
-          await WhatsAppService.queueNotification({
-            type: "ORDER_CONFIRMATION",
-            recipientPhone: order.shippingPhone,
-            message: WhatsAppMessages.orderConfirmation({
-              orderId: order.id,
-              totalAmount: Number(payment.amount),
-            }),
-            referenceId: order.id,
-          });
-        }
-
-        const { WalletReducer } = await import("../wallet/wallet.reducer");
-        void WalletReducer.upsertPendingPassForOrder(order.id, payment.userId);
-      }
-
-      return Result.ok({ success: true, paymentId: payment.id });
+      return this.fulfillRemidiesPaymentByRazorpayOrder(
+        rzpOrderId,
+        rzpPaymentId,
+        signature,
+        userId,
+        orderId,
+      );
     } catch (error: any) {
       return Result.fail(`Remidies verification failed: ${error.message}`);
     }
+  }
+
+  /**
+   * Idempotent shop-order fulfillment after Razorpay capture.
+   * Used by client verify and webhook.
+   */
+  static async fulfillRemidiesPaymentByRazorpayOrder(
+    rzpOrderId: string,
+    rzpPaymentId: string,
+    signature?: string,
+    expectedUserId?: string,
+    expectedShopOrderId?: string,
+  ) {
+    const payment = await prisma.payment.findFirst({
+      where: { providerOrderId: rzpOrderId },
+      include: {
+        user: true,
+        order: {
+          include: { items: { include: { product: true } } },
+        },
+      },
+    });
+
+    if (!payment) return Result.fail("Payment record not found");
+    if (!payment.orderId) return Result.fail("Payment has no linked order");
+
+    if (expectedUserId && payment.userId !== expectedUserId) {
+      return Result.fail("Unauthorized");
+    }
+    if (expectedShopOrderId && payment.orderId !== expectedShopOrderId) {
+      return Result.fail("Order mismatch");
+    }
+
+    if (payment.status === "COMPLETED" || payment.order?.status === "PAID") {
+      return Result.ok({
+        success: true,
+        paymentId: payment.id,
+        alreadyPaid: true,
+      });
+    }
+
+    await prisma.$transaction([
+      prisma.payment.update({
+        where: { id: payment.id },
+        data: {
+          status: "COMPLETED",
+          providerPaymentId: rzpPaymentId,
+          ...(signature ? { providerSignature: signature } : {}),
+        },
+      }),
+      prisma.order.update({
+        where: { id: payment.orderId },
+        data: { status: "PAID" },
+      }),
+    ]);
+
+    if (payment.user && payment.order) {
+      const order = payment.order;
+      const subtotal = Number(order.subtotalAmount);
+      const bulk = Number(order.bulkDiscount);
+      const coupon = Number(order.couponDiscount);
+      await EmailService.sendPaymentReceipt({
+        receiptId: rzpPaymentId,
+        date: new Date(),
+        userName: payment.user.name || "Customer",
+        userEmail: payment.user.email,
+        amount: Number(payment.amount),
+        items: order.items.map((item) => ({
+          name: item.product.name,
+          quantity: item.quantity,
+          price: Number(item.price),
+        })),
+        subtotalAmount: subtotal,
+        bulkDiscount: bulk > 0 ? bulk : undefined,
+        couponDiscount: coupon > 0 ? coupon : undefined,
+      });
+
+      if (order.shippingPhone) {
+        await WhatsAppService.queueNotification({
+          type: "ORDER_CONFIRMATION",
+          recipientPhone: order.shippingPhone,
+          message: WhatsAppMessages.orderConfirmation({
+            orderId: order.id,
+            totalAmount: Number(payment.amount),
+          }),
+          referenceId: order.id,
+        });
+      }
+
+      const { WalletReducer } = await import("../wallet/wallet.reducer");
+      void WalletReducer.upsertPendingPassForOrder(order.id, payment.userId);
+    }
+
+    return Result.ok({ success: true, paymentId: payment.id });
   }
 
   // -------------------------------------------------------------------------

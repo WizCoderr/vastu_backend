@@ -19,7 +19,7 @@ router.get("/", PaymentIntent.getPaymentApis);
 router.post("/webhook/:bank", PaymentWebhookIntent.handleWebhook);
 
 // =============================================================================
-//  UPI PAYMENTS (STUDENT)
+//  UPI PAYMENTS (STUDENT) — legacy when PAYMENT_PROVIDER=upi
 // =============================================================================
 router.post("/create", requireAuth, paymentRateLimit, PaymentIntent.createPayment);
 router.post("/verify", requireAuth, paymentRateLimit, PaymentIntent.verifyPayment);
@@ -31,14 +31,22 @@ router.get("/invoices/:id/download", requireAuth, PaymentIntent.downloadInvoice)
 //  COURSE PAYMENTS (STUDENT)
 // =============================================================================
 router.post("/free-enroll", requireAuth, PaymentIntent.freeEnroll);
-router.post("/course/order", requireAuth, PaymentIntent.createRazorpayOrder);
-router.post("/course/verify", requireAuth, PaymentIntent.verifyRazorpayPayment);
+router.post("/course/order", requireAuth, paymentRateLimit, PaymentIntent.createRazorpayOrder);
+router.post("/course/verify", requireAuth, paymentRateLimit, PaymentIntent.verifyRazorpayPayment);
+router.get("/course/plan/:courseId", PaymentIntent.getCoursePaymentPlan);
+router.get("/course/:courseId/my-payments", requireAuth, PaymentIntent.getStudentPayments);
+router.post(
+  "/course/installment/:paymentId",
+  requireAuth,
+  paymentRateLimit,
+  PaymentIntent.payInstallment,
+);
 
 // =============================================================================
 //  REMIDIES PAYMENTS (STUDENT)
 // =============================================================================
-router.post("/remidies/order", requireAuth, PaymentIntent.createRemidiesOrder);
-router.post("/remidies/verify", requireAuth, PaymentIntent.verifyRemidiesPayment);
+router.post("/remidies/order", requireAuth, paymentRateLimit, PaymentIntent.createRemidiesOrder);
+router.post("/remidies/verify", requireAuth, paymentRateLimit, PaymentIntent.verifyRemidiesPayment);
 
 // =============================================================================
 //  ADMIN ROUTES

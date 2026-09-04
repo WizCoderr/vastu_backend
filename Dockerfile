@@ -54,10 +54,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
        fi
 
 COPY --from=deps /app/node_modules ./node_modules
-COPY --from=build /app/src/generated ./src/generated
 COPY package.json bun.lock* ./
 COPY prisma ./prisma/
 COPY src ./src/
+# Must come after COPY src — host src/generated is darwin and would overwrite linux engines
+COPY --from=build /app/src/generated ./src/generated
 COPY docker/entrypoint-api.sh /entrypoint-api.sh
 
 RUN chmod +x /entrypoint-api.sh \

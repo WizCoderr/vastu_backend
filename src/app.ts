@@ -14,8 +14,6 @@ import remidiesRoutes from "./routes/remidies.route";
 import walletRoutes from "./wallet/wallet.routes";
 import { config } from "./config";
 import { auditLogMiddleware } from "./middleware/audit-log.middleware";
-import { pingRedis } from "./config/redis";
-
 const app = express();
 
 // Middleware
@@ -72,12 +70,11 @@ app.use("/api/wallet", walletRoutes);
 app.use("/uploads", express.static("uploads"));
 
 // Health check
-app.get("/health", async (req, res) => {
+app.get("/health", async (_req, res) => {
   const { config: coreConfig } = await import("./core/config");
-  const redisOk = coreConfig.redis.enabled ? await pingRedis() : true;
-  res.status(redisOk ? 200 : 503).json({
-    status: redisOk ? "ok" : "degraded",
-    redis: redisOk,
+  res.status(200).json({
+    status: "ok",
+    paymentProvider: coreConfig.paymentProvider,
     googleWalletConfigured: coreConfig.googleWallet.configured,
     timestamp: new Date().toISOString(),
   });

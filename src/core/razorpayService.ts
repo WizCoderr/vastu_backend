@@ -65,3 +65,26 @@ export const verifyRazorpaySignature = (
 
   return generatedSignature === signature;
 };
+
+/** Verify Razorpay webhook HMAC (raw request body). */
+export const verifyRazorpayWebhookSignature = (
+  rawBody: string | Buffer,
+  signature: string,
+): boolean => {
+  const secret = config.razorpay.webhookSecret;
+  if (!secret || !signature) return false;
+
+  const expected = crypto
+    .createHmac("sha256", secret)
+    .update(rawBody)
+    .digest("hex");
+
+  try {
+    return crypto.timingSafeEqual(
+      Buffer.from(expected),
+      Buffer.from(signature),
+    );
+  } catch {
+    return false;
+  }
+};

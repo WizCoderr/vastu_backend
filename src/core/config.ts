@@ -79,9 +79,12 @@ export const config = {
                 ? (process.env.RAZORPAY_KEY_SECRET ?? process.env.RAZORPAY_TEST_KEY_SECRET)
                 : process.env.RAZORPAY_KEY_SECRET_PROD;
         },
+        get webhookSecret() {
+            return process.env.RAZORPAY_WEBHOOK_SECRET || '';
+        },
     },
 
-    paymentProvider: process.env.PAYMENT_PROVIDER || 'upi',
+    paymentProvider: process.env.PAYMENT_PROVIDER || 'razorpay',
 
     upi: {
         merchantVpa: process.env.UPI_MERCHANT_VPA || 'payments@wizhub',
@@ -98,7 +101,8 @@ export const config = {
 
     redis: {
         url: process.env.REDIS_URL || 'redis://localhost:6379',
-        enabled: process.env.REDIS_ENABLED !== 'false',
+        /** Off by default — Razorpay is sync; BullMQ/UPI workers need REDIS_ENABLED=true */
+        enabled: process.env.REDIS_ENABLED === 'true',
         connectTimeoutMs: parseInteger(process.env.REDIS_CONNECT_TIMEOUT_MS, 10_000),
         commandTimeoutMs: parseInteger(process.env.REDIS_COMMAND_TIMEOUT_MS, 5_000),
         lockTtlMs: parseInteger(process.env.PAYMENT_LOCK_TTL_MS, 30_000),
@@ -107,9 +111,9 @@ export const config = {
     },
 
     process: {
-        /** api = HTTP only | worker = background jobs only | all = single-process dev */
+        /** api = HTTP only | worker = background jobs only | all = single-process (Razorpay) */
         role: (process.env.PROCESS_ROLE || 'all') as 'api' | 'worker' | 'all',
-        runPaymentWorkers: process.env.RUN_PAYMENT_WORKERS !== 'false',
+        runPaymentWorkers: process.env.RUN_PAYMENT_WORKERS === 'true',
     },
 
     queue: {

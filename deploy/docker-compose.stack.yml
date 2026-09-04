@@ -9,25 +9,10 @@
 #   cd ~/vastu_backend/deploy
 #   cp .env.stack.example .env
 #   docker compose -f docker-compose.stack.yml up -d --build
-#   docker compose -f docker-compose.stack.yml up -d --scale payment-worker=3
 
 name: vastu-stack-prod
 
 services:
-  redis:
-    image: redis:7-alpine
-    restart: unless-stopped
-    command: redis-server --appendonly yes --maxmemory 512mb --maxmemory-policy allkeys-lru
-    volumes:
-      - redis_data:/data
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 10s
-      timeout: 3s
-      retries: 5
-    networks:
-      - internal
-
   api:
     build:
       context: ..
@@ -38,14 +23,11 @@ services:
       - ../.env
     environment:
       NODE_ENV: production
-      PROCESS_ROLE: api
+      PROCESS_ROLE: all
+      PAYMENT_PROVIDER: razorpay
       RUN_PAYMENT_WORKERS: "false"
       RUN_MIGRATIONS: "true"
-      REDIS_URL: redis://redis:6379
-      REDIS_ENABLED: "true"
-    depends_on:
-      redis:
-        condition: service_healthy
+      REDIS_ENABLED: "false"
     volumes:
       - whatsapp_session:/app/.wwebjs_auth
       - invoice_storage:/app/storage/invoices
@@ -59,33 +41,6 @@ services:
     networks:
       - internal
       - edge
-
-  payment-worker:
-    build:
-      context: ..
-      dockerfile: Dockerfile
-    image: vastu-backend:${IMAGE_TAG:-latest}
-    restart: unless-stopped
-    command: ["bun", "run", "src/worker.ts"]
-    env_file:
-      - ../.env
-    environment:
-      NODE_ENV: production
-      PROCESS_ROLE: worker
-      RUN_PAYMENT_WORKERS: "true"
-      RUN_MIGRATIONS: "false"
-      WHATSAPP_ENABLED: ${WORKER_WHATSAPP_ENABLED:-false}
-      REDIS_URL: redis://redis:6379
-      REDIS_ENABLED: "true"
-    depends_on:
-      api:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-    volumes:
-      - invoice_storage:/app/storage/invoices
-    networks:
-      - internal
 
   website:
     build:
@@ -145,7 +100,6 @@ services:
         max-file: "5"
 
 volumes:
-  redis_data:
   whatsapp_session:
   invoice_storage:
   upload_storage:

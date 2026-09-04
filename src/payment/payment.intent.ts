@@ -326,14 +326,16 @@ export class PaymentIntent {
     static async getPaymentApis(req: any, res: Response) {
         const apis = {
             student: [
-                { method: "POST", path: "/api/payments/create", description: "Create UPI payment" },
-                { method: "POST", path: "/api/payments/verify", description: "Verify UPI payment" },
-                { method: "GET", path: "/api/payments/status/:transactionId", description: "Get payment status" },
-                { method: "GET", path: "/api/payments/history", description: "Payment history" },
-                { method: "POST", path: "/api/payments/course/order", description: "Create course payment" },
-                { method: "POST", path: "/api/payments/course/verify", description: "Verify course payment" },
-                { method: "POST", path: "/api/payments/remidies/order", description: "Create shop payment" },
-                { method: "POST", path: "/api/payments/remidies/verify", description: "Verify shop payment" },
+                { method: "POST", path: "/api/payments/course/order", description: "Create Razorpay course order" },
+                { method: "POST", path: "/api/payments/course/verify", description: "Verify Razorpay course payment" },
+                { method: "GET", path: "/api/payments/course/plan/:courseId", description: "Course installment plan" },
+                { method: "GET", path: "/api/payments/course/:courseId/my-payments", description: "Student course payments" },
+                { method: "POST", path: "/api/payments/course/installment/:paymentId", description: "Pay installment via Razorpay" },
+                { method: "POST", path: "/api/payments/remidies/order", description: "Create Razorpay shop order" },
+                { method: "POST", path: "/api/payments/remidies/verify", description: "Verify Razorpay shop payment" },
+                { method: "POST", path: "/api/payments/webhook/razorpay", description: "Razorpay webhook" },
+                { method: "POST", path: "/api/payments/create", description: "Create UPI payment (legacy)" },
+                { method: "POST", path: "/api/payments/verify", description: "Verify UPI payment (legacy)" },
             ],
             admin: [
                 { method: "GET", path: "/api/payments/admin/transactions", description: "UPI transactions" },

@@ -1,37 +1,18 @@
 version: "3.9"
 
 services:
-  redis:
-    image: redis:7-alpine
-    container_name: vastu_redis
-    restart: always
-    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
-    ports:
-      - "127.0.0.1:6379:6379"
-    volumes:
-      - redis_data:/data
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 10s
-      timeout: 3s
-      retries: 5
-
   backend:
     build: .
     container_name: vastu_backend
     restart: always
-    depends_on:
-      redis:
-        condition: service_healthy
     env_file:
       - .env
     environment:
-      REDIS_URL: redis://redis:6379
-      REDIS_ENABLED: "true"
-      PAYMENT_PROVIDER: upi
-      PAYMENT_BANK_PROVIDER: mock
-      PROCESS_ROLE: api
+      PAYMENT_PROVIDER: razorpay
+      PROCESS_ROLE: all
       RUN_PAYMENT_WORKERS: "false"
+      RUN_MIGRATIONS: "true"
+      REDIS_ENABLED: "false"
       PUPPETEER_SKIP_CHROMIUM_DOWNLOAD: "true"
       PUPPETEER_EXECUTABLE_PATH: /usr/bin/chromium
     ports:
@@ -42,28 +23,8 @@ services:
     deploy:
       replicas: 1
 
-  payment-worker:
-    build: .
-    restart: always
-    command: ["bun", "run", "src/worker.ts"]
-    depends_on:
-      redis:
-        condition: service_healthy
-    env_file:
-      - .env
-    environment:
-      REDIS_URL: redis://redis:6379
-      REDIS_ENABLED: "true"
-      PROCESS_ROLE: worker
-      RUN_PAYMENT_WORKERS: "true"
-      RUN_MIGRATIONS: "false"
-      WHATSAPP_ENABLED: "false"
-    volumes:
-      - invoice_storage:/app/storage/invoices
-
 volumes:
   whatsapp_session:
-  redis_data:
   invoice_storage:
 
 networks:
