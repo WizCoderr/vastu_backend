@@ -11,6 +11,7 @@
     "test:payment": "bun run scripts/test-upi-payment.ts",
     "migrate_mongo": "bun run scripts/migrate_mongo.ts",
     "migrate:pg-to-mongo": "bun run scripts/pg-to-mongo-migrate.ts",
+    "backfill:user-updated-at": "bun run scripts/backfill_user_updated_at.ts",
     "build": "bun build ./src/index.ts --outdir ./dist --target node",
     "start": "bun run src/index.ts"
   },

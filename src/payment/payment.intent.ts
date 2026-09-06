@@ -300,7 +300,12 @@ export class PaymentIntent {
     static async payInstallment(req: AuthRequest, res: Response) {
         if (!req.user) return res.status(401).json({ error: "Unauthorized" });
         try {
-            const { paymentId } = req.params;
+            const paymentId =
+                (req.params.paymentId as string | undefined) ||
+                (req.body?.paymentId as string | undefined);
+            if (!paymentId) {
+                return res.status(400).json({ error: "paymentId is required" });
+            }
             const result = await PaymentReducer.payInstallment(req.user.userId, paymentId);
             return result.success ? res.json(result.data) : res.status(400).json(result);
         } catch {
@@ -329,8 +334,10 @@ export class PaymentIntent {
                 { method: "POST", path: "/api/payments/course/order", description: "Create Razorpay course order" },
                 { method: "POST", path: "/api/payments/course/verify", description: "Verify Razorpay course payment" },
                 { method: "GET", path: "/api/payments/course/plan/:courseId", description: "Course installment plan" },
+                { method: "GET", path: "/api/payments/plan/:courseId", description: "Course installment plan (alias)" },
                 { method: "GET", path: "/api/payments/course/:courseId/my-payments", description: "Student course payments" },
                 { method: "POST", path: "/api/payments/course/installment/:paymentId", description: "Pay installment via Razorpay" },
+                { method: "POST", path: "/api/payments/installment/order", description: "Pay installment via Razorpay (body.paymentId)" },
                 { method: "POST", path: "/api/payments/remidies/order", description: "Create Razorpay shop order" },
                 { method: "POST", path: "/api/payments/remidies/verify", description: "Verify Razorpay shop payment" },
                 { method: "POST", path: "/api/payments/webhook/razorpay", description: "Razorpay webhook" },

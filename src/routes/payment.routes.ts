@@ -41,6 +41,14 @@ router.post(
   paymentRateLimit,
   PaymentIntent.payInstallment,
 );
+// Plan aliases
+router.get("/plan/:courseId", PaymentIntent.getCoursePaymentPlan);
+router.post(
+  "/installment/order",
+  requireAuth,
+  paymentRateLimit,
+  PaymentIntent.payInstallment,
+);
 
 // =============================================================================
 //  REMIDIES PAYMENTS (STUDENT)

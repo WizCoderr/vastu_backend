@@ -70,17 +70,19 @@ export const config = {
     razorpay: {
         useTest: process.env.RAZORPAY_USE_TEST === 'true',
         get keyId() {
-            return this.useTest
-                ? (process.env.RAZORPAY_KEY_ID ?? process.env.RAZORPAY_TEST_KEY_ID)
+            const raw = this.useTest
+                ? (process.env.RAZORPAY_KEY_ID || process.env.RAZORPAY_TEST_KEY_ID)
                 : process.env.RAZORPAY_KEY_ID_PROD;
+            return raw?.trim() || undefined;
         },
         get keySecret() {
-            return this.useTest
-                ? (process.env.RAZORPAY_KEY_SECRET ?? process.env.RAZORPAY_TEST_KEY_SECRET)
+            const raw = this.useTest
+                ? (process.env.RAZORPAY_KEY_SECRET || process.env.RAZORPAY_TEST_KEY_SECRET)
                 : process.env.RAZORPAY_KEY_SECRET_PROD;
+            return raw?.trim() || undefined;
         },
         get webhookSecret() {
-            return process.env.RAZORPAY_WEBHOOK_SECRET || '';
+            return process.env.RAZORPAY_WEBHOOK_SECRET?.trim() || '';
         },
     },
 
