@@ -9,9 +9,6 @@ services:
       - .env
     ports:
       - "127.0.0.1:3030:3030"
-    volumes:
-      - whatsapp_session:/app/.wwebjs_auth
-      - invoice_storage:/app/storage/invoices
     deploy:
       replicas: 1
 
