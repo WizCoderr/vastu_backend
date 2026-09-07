@@ -34,7 +34,12 @@ app.use(
   cors({
     origin: allowedOrigins,
     methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With"],
+    allowedHeaders: [
+      "Content-Type",
+      "Authorization",
+      "X-Requested-With",
+      "x-client-channel",
+    ],
     credentials: true,
     exposedHeaders: ["Content-Range", "X-Content-Range"],
   }),
@@ -45,8 +50,14 @@ app.use(morgan("dev"));
 app.use(cookieParser());
 app.use(auditLogMiddleware);
 
-// Webhook route - needs raw body for payment providers if needed
-app.use("/api/payments/webhook", express.raw({ type: "application/json" }));
+// PayU callback/webhook — form-urlencoded body (hash over field values)
+app.use(
+  ["/api/payments/payu/callback", "/api/payments/payu/webhook"],
+  express.urlencoded({ extended: false }),
+);
+
+// Legacy UPI bank webhooks may send JSON
+app.use("/api/payments/webhook", express.json({ limit: "2mb" }));
 
 // Serve invoice files
 app.use("/storage/invoices", express.static("storage/invoices"));

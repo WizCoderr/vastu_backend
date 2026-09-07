@@ -6,10 +6,29 @@ import { PaymentReducer } from './payment.reducer';
 import { UpiPaymentService } from './upi-payment.service';
 import { prisma } from '../core/prisma';
 import { config } from '../core/config';
+import type { PayuChannel, PayuResponsePayload } from '../core/payuService';
+
+function resolveChannel(req: AuthRequest): PayuChannel {
+  const raw =
+    (req.body?.channel as string | undefined) ||
+    (req.headers['x-client-channel'] as string | undefined) ||
+    '';
+  return raw.toLowerCase() === 'app' ? 'app' : 'web';
+}
+
+function formPayload(body: unknown): PayuResponsePayload {
+  if (!body || typeof body !== 'object') return {};
+  const out: PayuResponsePayload = {};
+  for (const [key, value] of Object.entries(body as Record<string, unknown>)) {
+    if (value == null) continue;
+    out[key] = Array.isArray(value) ? String(value[0]) : String(value);
+  }
+  return out;
+}
 
 export class PaymentIntent {
 
-    static async createRazorpayOrder(req: AuthRequest, res: Response) {
+    static async createCourseOrder(req: AuthRequest, res: Response) {
         if (!req.user) return res.status(401).json({ error: "Unauthorized" });
 
         try {
@@ -30,34 +49,35 @@ export class PaymentIntent {
                 return result.success ? res.json(result.data) : res.status(400).json({ error: result.error });
             }
 
-            const result = await PaymentReducer.createRazorpayOrder(req.user.userId, courseId);
+            const result = await PaymentReducer.createCoursePayuPayment(
+                req.user.userId,
+                courseId,
+                resolveChannel(req),
+            );
             return result.success ? res.json(result.data) : res.status(400).json({ error: result.error });
         } catch {
             res.status(500).json({ error: "Internal order creation error" });
         }
     }
 
-    static async verifyRazorpayPayment(req: AuthRequest, res: Response) {
+    /** Client verify / status poll — PayU S2S or UPI depending on PAYMENT_PROVIDER */
+    static async verifyCoursePayment(req: AuthRequest, res: Response) {
         if (!req.user) return res.status(401).json({ error: "Unauthorized" });
 
         try {
-            const { transactionId, razorpay_order_id, razorpay_payment_id, razorpay_signature, courseId } = req.body;
+            const { transactionId, txnid, courseId } = req.body;
 
             if (config.paymentProvider === 'upi') {
-                const txnId = transactionId ?? razorpay_order_id;
+                const txnId = transactionId ?? txnid;
                 if (!txnId) return res.status(400).json({ error: 'transactionId is required' });
                 const result = await UpiPaymentService.verifyPayment(req.user.userId, txnId);
                 return result.success ? res.json(result.data) : res.status(400).json({ error: result.error });
             }
 
-            if (!razorpay_order_id || !razorpay_payment_id || !razorpay_signature || !courseId)
-                return res.status(400).json({ error: "Incomplete payment details" });
+            const id = txnid || transactionId;
+            if (!id) return res.status(400).json({ error: "txnid is required" });
 
-            const result = await PaymentReducer.verifyRazorpayPayment(
-                req.user.userId, courseId,
-                razorpay_order_id, razorpay_payment_id, razorpay_signature
-            );
-
+            const result = await PaymentReducer.getPayuStatus(req.user.userId, id);
             return result.success ? res.json(result.data) : res.status(400).json({ error: result.error });
         } catch {
             res.status(500).json({ error: "Payment verification failed" });
@@ -84,7 +104,11 @@ export class PaymentIntent {
                 return result.success ? res.json(result.data) : res.status(400).json({ error: result.error });
             }
 
-            const result = await PaymentReducer.createRemidiesOrder(req.user.userId, orderId);
+            const result = await PaymentReducer.createRemidiesOrder(
+                req.user.userId,
+                orderId,
+                resolveChannel(req),
+            );
             return result.success ? res.json(result.data) : res.status(400).json({ error: result.error });
         } catch {
             res.status(500).json({ error: "Remidies order payment creation failed" });
@@ -94,24 +118,159 @@ export class PaymentIntent {
     static async verifyRemidiesPayment(req: AuthRequest, res: Response) {
         if (!req.user) return res.status(401).json({ error: "Unauthorized" });
         try {
-            const { transactionId, razorpay_order_id, razorpay_payment_id, razorpay_signature, orderId } = req.body;
+            const { transactionId, txnid } = req.body;
 
             if (config.paymentProvider === 'upi') {
-                const txnId = transactionId ?? razorpay_order_id;
+                const txnId = transactionId ?? txnid;
                 if (!txnId) return res.status(400).json({ error: 'transactionId is required' });
                 const result = await UpiPaymentService.verifyPayment(req.user.userId, txnId);
                 return result.success ? res.json(result.data) : res.status(400).json({ error: result.error });
             }
 
-            if (!razorpay_order_id || !razorpay_payment_id || !razorpay_signature || !orderId)
-                return res.status(400).json({ error: "Incomplete payment details" });
+            const id = txnid || transactionId;
+            if (!id) return res.status(400).json({ error: "txnid is required" });
 
-            const result = await PaymentReducer.verifyRemidiesPayment(
-                req.user.userId, orderId, razorpay_order_id, razorpay_payment_id, razorpay_signature
-            );
+            const result = await PaymentReducer.getPayuStatus(req.user.userId, id);
             return result.success ? res.json(result.data) : res.status(400).json({ error: result.error });
         } catch {
             res.status(500).json({ error: "Remidies payment verification failed" });
+        }
+    }
+
+    static async handlePayuCallback(req: any, res: Response) {
+        try {
+            const payload = formPayload(req.body);
+            const result = await PaymentReducer.processPayuResponse(payload);
+            const txnid = String(payload.txnid ?? '');
+            const status = String(payload.status ?? '').toLowerCase();
+            const amount = String(payload.amount ?? '');
+            const kind = String(payload.udf2 ?? '').toUpperCase();
+            const refId = String(payload.udf3 ?? '');
+            const mihpayid = String(payload.mihpayid ?? '');
+            const channel = String(payload.udf1 ?? '').toLowerCase();
+
+            const success =
+                result.success &&
+                (status === 'success' || status === 'captured') &&
+                !(result.data as any)?.status?.toString().includes('FAILED');
+
+            // Flutter CheckoutPro WebView: HTML 200 ack (302 to SPA breaks the SDK)
+            if (channel === 'app') {
+                const title = success ? 'Payment successful' : 'Payment failed';
+                const detail = success
+                    ? 'You can close this window and return to the app.'
+                    : String((result as any).error || payload.error_Message || status || 'failed');
+                const safe = detail.replace(/[<>&]/g, '');
+                res.status(200).type('html').send(`<!DOCTYPE html>
+<html><head><meta charset="utf-8"/><title>${title}</title>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+</head><body style="font-family:sans-serif;padding:24px;text-align:center">
+<h1>${title}</h1><p>${safe}</p>
+<p style="color:#666;font-size:12px">txnid: ${txnid}</p>
+</body></html>`);
+                return;
+            }
+
+            const base = config.payu.webReturnUrl;
+
+            if (success) {
+                const qs = new URLSearchParams({
+                    txnid,
+                    transactionId: mihpayid || txnid,
+                    amount,
+                    status: 'success',
+                });
+                if (kind === 'PRODUCT' && refId) qs.set('orderId', refId);
+                if (kind === 'COURSE' && refId) qs.set('courseId', refId);
+                return res.redirect(302, `${base}/payment/success?${qs.toString()}`);
+            }
+
+            const reason = encodeURIComponent(
+                (result as any).error ||
+                    String(payload.error_Message || payload.error || status || 'failed'),
+            );
+            const qs = new URLSearchParams({
+                txnid,
+                reason,
+                status: 'failure',
+            });
+            if (kind === 'PRODUCT' && refId) qs.set('orderId', refId);
+            if (kind === 'COURSE' && refId) qs.set('courseId', refId);
+            return res.redirect(302, `${base}/payment/failure?${qs.toString()}`);
+        } catch (error: any) {
+            const channel = String(req.body?.udf1 ?? '').toLowerCase();
+            if (channel === 'app') {
+                const msg = String(error.message || 'callback_error').replace(/[<>&]/g, '');
+                return res
+                    .status(200)
+                    .type('html')
+                    .send(`<!DOCTYPE html><html><body><h1>Payment error</h1><p>${msg}</p></body></html>`);
+            }
+            const base = config.payu.webReturnUrl;
+            return res.redirect(
+                302,
+                `${base}/payment/failure?reason=${encodeURIComponent(error.message || 'callback_error')}`,
+            );
+        }
+    }
+
+    static async handlePayuWebhook(req: any, res: Response) {
+        try {
+            const payload = formPayload(req.body);
+            const result = await PaymentReducer.processPayuResponse(payload);
+            if (!result.success) {
+                return res.status(400).json({ error: result.error });
+            }
+            return res.json({ success: true, data: result.data });
+        } catch (error: any) {
+            return res.status(400).json({ error: error.message || 'Webhook failed' });
+        }
+    }
+
+    static async generatePayuHash(req: AuthRequest, res: Response) {
+        if (!req.user) return res.status(401).json({ error: 'Unauthorized' });
+        try {
+            const { txnid, hashName, hashString, hashType, postSalt } = req.body || {};
+            const result = await PaymentReducer.generatePayuSdkHash(req.user.userId, {
+                txnid,
+                hashName,
+                hashString,
+                hashType,
+                postSalt,
+            });
+            return result.success
+                ? res.json(result.data)
+                : res.status(400).json({ error: result.error });
+        } catch {
+            res.status(500).json({ error: 'Hash generation failed' });
+        }
+    }
+
+    static async getPayuStatus(req: AuthRequest, res: Response) {
+        if (!req.user) return res.status(401).json({ error: 'Unauthorized' });
+        try {
+            const { txnid } = req.params;
+            if (!txnid) return res.status(400).json({ error: 'txnid is required' });
+            const result = await PaymentReducer.getPayuStatus(req.user.userId, txnid);
+            return result.success
+                ? res.json(result.data)
+                : res.status(404).json({ error: result.error });
+        } catch {
+            res.status(500).json({ error: 'Failed to fetch PayU status' });
+        }
+    }
+
+    static async refundPayment(req: AuthRequest, res: Response) {
+        if (!req.user) return res.status(401).json({ error: 'Unauthorized' });
+        try {
+            const paymentId = String(req.params.paymentId || req.body?.paymentId || '');
+            if (!paymentId) return res.status(400).json({ error: 'paymentId is required' });
+            const result = await PaymentReducer.refundPayuPayment(paymentId, req.user.userId);
+            return result.success
+                ? res.json({ success: true, data: result.data })
+                : res.status(400).json({ error: result.error });
+        } catch (error: any) {
+            res.status(500).json({ error: error.message || 'Refund failed' });
         }
     }
 
@@ -306,7 +465,11 @@ export class PaymentIntent {
             if (!paymentId) {
                 return res.status(400).json({ error: "paymentId is required" });
             }
-            const result = await PaymentReducer.payInstallment(req.user.userId, paymentId);
+            const result = await PaymentReducer.payInstallment(
+                req.user.userId,
+                paymentId,
+                resolveChannel(req),
+            );
             return result.success ? res.json(result.data) : res.status(400).json(result);
         } catch {
             res.status(500).json({ error: "Failed to initiate installment payment" });
@@ -331,22 +494,26 @@ export class PaymentIntent {
     static async getPaymentApis(req: any, res: Response) {
         const apis = {
             student: [
-                { method: "POST", path: "/api/payments/course/order", description: "Create Razorpay course order" },
-                { method: "POST", path: "/api/payments/course/verify", description: "Verify Razorpay course payment" },
+                { method: "POST", path: "/api/payments/course/order", description: "Create PayU course payment" },
+                { method: "POST", path: "/api/payments/course/verify", description: "Poll/reconcile course payment status" },
                 { method: "GET", path: "/api/payments/course/plan/:courseId", description: "Course installment plan" },
                 { method: "GET", path: "/api/payments/plan/:courseId", description: "Course installment plan (alias)" },
                 { method: "GET", path: "/api/payments/course/:courseId/my-payments", description: "Student course payments" },
-                { method: "POST", path: "/api/payments/course/installment/:paymentId", description: "Pay installment via Razorpay" },
-                { method: "POST", path: "/api/payments/installment/order", description: "Pay installment via Razorpay (body.paymentId)" },
-                { method: "POST", path: "/api/payments/remidies/order", description: "Create Razorpay shop order" },
-                { method: "POST", path: "/api/payments/remidies/verify", description: "Verify Razorpay shop payment" },
-                { method: "POST", path: "/api/payments/webhook/razorpay", description: "Razorpay webhook" },
+                { method: "POST", path: "/api/payments/course/installment/:paymentId", description: "Pay installment via PayU" },
+                { method: "POST", path: "/api/payments/installment/order", description: "Pay installment via PayU (body.paymentId)" },
+                { method: "POST", path: "/api/payments/remidies/order", description: "Create PayU shop payment" },
+                { method: "POST", path: "/api/payments/remidies/verify", description: "Poll/reconcile shop payment status" },
+                { method: "POST", path: "/api/payments/payu/callback", description: "PayU surl/furl browser callback" },
+                { method: "POST", path: "/api/payments/payu/webhook", description: "PayU server-to-server webhook" },
+                { method: "POST", path: "/api/payments/payu/hash", description: "Generate CheckoutPro SDK hash" },
+                { method: "GET", path: "/api/payments/payu/status/:txnid", description: "PayU payment status" },
                 { method: "POST", path: "/api/payments/create", description: "Create UPI payment (legacy)" },
                 { method: "POST", path: "/api/payments/verify", description: "Verify UPI payment (legacy)" },
             ],
             admin: [
-                { method: "GET", path: "/api/payments/admin/transactions", description: "UPI transactions" },
+                { method: "GET", path: "/api/payments/admin/transactions", description: "Online / PayU transactions" },
                 { method: "POST", path: "/api/payments/admin/reconcile", description: "Manual UTR reconcile" },
+                { method: "POST", path: "/api/payments/admin/refund/:paymentId", description: "Refund a completed PayU payment" },
                 { method: "GET", path: "/api/payments/admin/export", description: "Export CSV" },
                 { method: "GET", path: "/api/payments/admin/all", description: "Unified payments view" },
             ],

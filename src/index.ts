@@ -54,6 +54,13 @@ if (coreConfig.process.role === 'worker') {
     process.exit(1);
 }
 
+try {
+    coreConfig.assertPayuConfigured();
+} catch (error: any) {
+    logger.error(error?.message || 'PayU configuration invalid');
+    process.exit(1);
+}
+
 const configuredWorkers = parseInt(process.env.WEB_CONCURRENCY || process.env.WORKERS || '1', 10);
 const forceCluster = process.env.FORCE_CLUSTER === 'true';
 

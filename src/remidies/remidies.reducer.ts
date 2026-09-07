@@ -322,7 +322,7 @@ export const createOrderWithTransaction = async (
         amount: breakdown.totalAmount,
         currency: 'INR',
         status: PaymentStatus.PENDING,
-        provider: PaymentProvider.RAZORPAY,
+        provider: PaymentProvider.PAYU,
       },
     });
 

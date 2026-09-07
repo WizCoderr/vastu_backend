@@ -18,6 +18,12 @@ router.get("/", PaymentIntent.getPaymentApis);
 // Webhooks (no auth — signature verified in handler)
 router.post("/webhook/:bank", PaymentWebhookIntent.handleWebhook);
 
+// PayU browser callback + S2S webhook (form-urlencoded)
+router.post("/payu/callback", PaymentIntent.handlePayuCallback);
+router.post("/payu/webhook", PaymentIntent.handlePayuWebhook);
+router.post("/payu/hash", requireAuth, paymentRateLimit, PaymentIntent.generatePayuHash);
+router.get("/payu/status/:txnid", requireAuth, paymentRateLimit, PaymentIntent.getPayuStatus);
+
 // =============================================================================
 //  UPI PAYMENTS (STUDENT) — legacy when PAYMENT_PROVIDER=upi
 // =============================================================================
@@ -31,8 +37,8 @@ router.get("/invoices/:id/download", requireAuth, PaymentIntent.downloadInvoice)
 //  COURSE PAYMENTS (STUDENT)
 // =============================================================================
 router.post("/free-enroll", requireAuth, PaymentIntent.freeEnroll);
-router.post("/course/order", requireAuth, paymentRateLimit, PaymentIntent.createRazorpayOrder);
-router.post("/course/verify", requireAuth, paymentRateLimit, PaymentIntent.verifyRazorpayPayment);
+router.post("/course/order", requireAuth, paymentRateLimit, PaymentIntent.createCourseOrder);
+router.post("/course/verify", requireAuth, paymentRateLimit, PaymentIntent.verifyCoursePayment);
 router.get("/course/plan/:courseId", PaymentIntent.getCoursePaymentPlan);
 router.get("/course/:courseId/my-payments", requireAuth, PaymentIntent.getStudentPayments);
 router.post(
@@ -61,6 +67,12 @@ router.post("/remidies/verify", requireAuth, paymentRateLimit, PaymentIntent.ver
 // =============================================================================
 router.get("/admin/transactions", requireAdmin, PaymentIntent.getAdminTransactions);
 router.post("/admin/reconcile", requireAdmin, PaymentIntent.reconcilePayment);
+router.post(
+  "/admin/refund/:paymentId",
+  requireAdmin,
+  paymentRateLimit,
+  PaymentIntent.refundPayment,
+);
 router.get("/admin/export", requireAdmin, PaymentIntent.exportTransactions);
 router.get("/admin/course-payments", requireAdmin, PaymentIntent.getAllCoursePayments);
 router.get("/admin/remidies-payments", requireAdmin, PaymentIntent.getAllRemidiesPayments);

@@ -24,7 +24,7 @@ services:
     environment:
       NODE_ENV: production
       PROCESS_ROLE: all
-      PAYMENT_PROVIDER: razorpay
+      PAYMENT_PROVIDER: payu
       RUN_PAYMENT_WORKERS: "false"
       RUN_MIGRATIONS: "true"
       REDIS_ENABLED: "false"

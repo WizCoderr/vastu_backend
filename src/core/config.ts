@@ -67,26 +67,67 @@ export const config = {
         defaultLowStockThreshold: parseInteger(process.env.DEFAULT_LOW_STOCK_THRESHOLD, 5),
     },
 
-    razorpay: {
-        useTest: process.env.RAZORPAY_USE_TEST === 'true',
-        get keyId() {
+    payu: {
+        useTest: process.env.PAYU_USE_TEST !== 'false',
+        get merchantKey() {
             const raw = this.useTest
-                ? (process.env.RAZORPAY_KEY_ID || process.env.RAZORPAY_TEST_KEY_ID)
-                : process.env.RAZORPAY_KEY_ID_PROD;
+                ? (process.env.PAYU_MERCHANT_KEY || process.env.PAYU_TEST_MERCHANT_KEY)
+                : process.env.PAYU_MERCHANT_KEY_PROD;
             return raw?.trim() || undefined;
         },
-        get keySecret() {
+        get merchantSalt() {
             const raw = this.useTest
-                ? (process.env.RAZORPAY_KEY_SECRET || process.env.RAZORPAY_TEST_KEY_SECRET)
-                : process.env.RAZORPAY_KEY_SECRET_PROD;
+                ? (process.env.PAYU_MERCHANT_SALT || process.env.PAYU_TEST_MERCHANT_SALT)
+                : process.env.PAYU_MERCHANT_SALT_PROD;
             return raw?.trim() || undefined;
         },
-        get webhookSecret() {
-            return process.env.RAZORPAY_WEBHOOK_SECRET?.trim() || '';
+        /** Optional V2 salt used for mcpLookup HMAC-SHA1 in CheckoutPro SDK */
+        get merchantSaltV2() {
+            const raw = this.useTest
+                ? (process.env.PAYU_MERCHANT_SALT_V2 || process.env.PAYU_TEST_MERCHANT_SALT_V2)
+                : process.env.PAYU_MERCHANT_SALT_V2_PROD;
+            return raw?.trim() || undefined;
+        },
+        /** Internet-reachable API base used for surl/furl */
+        publicApiUrl: (process.env.PAYU_PUBLIC_API_URL || process.env.INVOICE_BASE_URL || 'http://localhost:3030').replace(/\/$/, ''),
+        /** SPA origin to 302 after PayU callback */
+        webReturnUrl: (process.env.PAYU_WEB_RETURN_URL || 'http://localhost:5173').replace(/\/$/, ''),
+        get paymentUrl() {
+            return this.useTest
+                ? 'https://test.payu.in/_payment'
+                : 'https://secure.payu.in/_payment';
+        },
+        get postServiceUrl() {
+            return this.useTest
+                ? 'https://test.payu.in/merchant/postservice.php?form=2'
+                : 'https://info.payu.in/merchant/postservice.php?form=2';
+        },
+        /** CheckoutPro: "1" = test, "0" = production */
+        get environment(): '0' | '1' {
+            return this.useTest ? '1' : '0';
         },
     },
 
-    paymentProvider: process.env.PAYMENT_PROVIDER || 'razorpay',
+    paymentProvider: process.env.PAYMENT_PROVIDER || 'payu',
+
+    /**
+     * Fail-fast when PayU is the active provider but merchant credentials are missing.
+     * Call once at process boot (see src/index.ts).
+     */
+    assertPayuConfigured() {
+        if (this.paymentProvider !== 'payu') return;
+        const key = this.payu.merchantKey;
+        const salt = this.payu.merchantSalt;
+        if (!key || !salt) {
+            const env = this.payu.useTest ? 'test' : 'production';
+            const hint = this.payu.useTest
+                ? 'Set PAYU_MERCHANT_KEY + PAYU_MERCHANT_SALT (or PAYU_TEST_*) from PayU Dashboard → Test Mode → API Keys'
+                : 'Set PAYU_MERCHANT_KEY_PROD + PAYU_MERCHANT_SALT_PROD on the server .env (never commit)';
+            throw new Error(
+                `PAYMENT_PROVIDER=payu but ${env} merchant key/salt is missing. ${hint}`,
+            );
+        }
+    },
 
     upi: {
         merchantVpa: process.env.UPI_MERCHANT_VPA || 'payments@wizhub',
@@ -103,7 +144,7 @@ export const config = {
 
     redis: {
         url: process.env.REDIS_URL || 'redis://localhost:6379',
-        /** Off by default — Razorpay is sync; BullMQ/UPI workers need REDIS_ENABLED=true */
+        /** Off by default — PayU is sync; BullMQ/UPI workers need REDIS_ENABLED=true */
         enabled: process.env.REDIS_ENABLED === 'true',
         connectTimeoutMs: parseInteger(process.env.REDIS_CONNECT_TIMEOUT_MS, 10_000),
         commandTimeoutMs: parseInteger(process.env.REDIS_COMMAND_TIMEOUT_MS, 5_000),
@@ -113,7 +154,7 @@ export const config = {
     },
 
     process: {
-        /** api = HTTP only | worker = background jobs only | all = single-process (Razorpay) */
+        /** api = HTTP only | worker = background jobs only | all = single-process (PayU) */
         role: (process.env.PROCESS_ROLE || 'all') as 'api' | 'worker' | 'all',
         runPaymentWorkers: process.env.RUN_PAYMENT_WORKERS === 'true',
     },
