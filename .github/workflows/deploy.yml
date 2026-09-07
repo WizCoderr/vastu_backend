@@ -18,8 +18,30 @@ jobs:
           timeout: 60s
           script: |
             cd ~/vastu_backend
+            # .env holds all secrets and is gitignored — it must already exist on the VPS
+            if [ ! -f .env ]; then
+              echo "ERROR: ~/vastu_backend/.env is missing. Create it from .env.example before deploying."
+              exit 1
+            fi
+            # .env used to be tracked; the commit that untracks it makes reset --hard delete
+            # the working-tree copy, so snapshot it and put it back afterwards.
+            cp .env /tmp/vastu_backend_env.bak
             git fetch origin master
             git reset --hard origin/master
-            docker compose -f docker-compose.prod.yml pull || true
-            docker compose -f docker-compose.prod.yml up -d --build
-            docker compose -f docker-compose.prod.yml up -d --scale payment-worker=2
+            if [ ! -f .env ]; then
+              cp /tmp/vastu_backend_env.bak .env
+              echo "Restored .env after it was untracked from git."
+            fi
+            rm -f /tmp/vastu_backend_env.bak
+            if ! grep -q '^PAYU_MERCHANT_KEY_PROD=.\+' .env && ! grep -q '^PAYU_MERCHANT_KEY=.\+' .env; then
+              echo "WARNING: No PayU merchant key found in .env — payments will fail until credentials are set."
+            fi
+            # Prefer stack compose; fall back to legacy prod filename if present
+            COMPOSE_FILE=deploy/docker-compose.stack.yml
+            if [ -f docker-compose.prod.yml ]; then
+              COMPOSE_FILE=docker-compose.prod.yml
+            fi
+            docker compose -f "$COMPOSE_FILE" pull || true
+            docker compose -f "$COMPOSE_FILE" up -d --build
+            # No-op when the compose file has no payment-worker service
+            docker compose -f "$COMPOSE_FILE" up -d --scale payment-worker=2 || true
