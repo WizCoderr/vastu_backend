@@ -283,6 +283,7 @@ enum PaymentType {
 enum PaymentProvider {
   UPI
   RAZORPAY
+  PAYU
   CASH
 }
 
