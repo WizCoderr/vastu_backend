@@ -21,6 +21,8 @@ router.get('/courses', requireAdmin, InstructorIntent.getInstructorCourses as Re
 router.get('/courses/:courseId', requireAdmin, InstructorIntent.getCourseDetails as RequestHandler);
 // Admin-only: list students in a course
 router.get('/courses/:courseId/students', requireAdmin, InstructorIntent.getCourseStudents as RequestHandler);
+// Admin-only: remove a student from a course
+router.delete('/courses/:courseId/students/:userId', requireAdmin, InstructorIntent.removeCourseStudent as RequestHandler);
 
 // Create a section in a course
 router.post('/courses/:courseId/sections', requireAdmin, InstructorIntent.createSection as RequestHandler);

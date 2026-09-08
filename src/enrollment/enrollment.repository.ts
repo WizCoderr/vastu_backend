@@ -64,6 +64,37 @@ export class EnrollmentRepository {
     }
 
     /**
+     * Remove a student's enrollment from a course.
+     * Leaves StudentPayment and Progress rows intact so history is preserved
+     * and progress is restored if the student is re-enrolled.
+     * @returns the deleted enrollment, or null if none existed
+     */
+    static async removeEnrollment(userId: string, courseId: string) {
+        const existing = await this.findEnrollment(userId, courseId);
+        if (!existing) return null;
+
+        await prisma.enrollment.delete({
+            where: { userId_courseId: { userId, courseId } },
+        });
+
+        const user = await prisma.user.findUnique({
+            where: { id: userId },
+            select: { enrolledCourseIds: true },
+        });
+
+        if (user) {
+            await prisma.user.update({
+                where: { id: userId },
+                data: {
+                    enrolledCourseIds: user.enrolledCourseIds.filter((id) => id !== courseId),
+                },
+            });
+        }
+
+        return existing;
+    }
+
+    /**
      * Mark a student's course payments as fully PAID (manual/admin offline payment).
      * If the course has installment plans, each stage is upserted to PAID;
      * otherwise a single "Full Payment" row is upserted.

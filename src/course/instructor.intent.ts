@@ -19,6 +19,7 @@ import {
     isCloudinaryProvider,
 } from '../core/cloudinaryService';
 import { sectionOrderBy, sortSectionsByOrder, withSectionIndex } from './section.utils';
+import { EnrollmentRepository } from '../enrollment/enrollment.repository';
 
 export class InstructorIntent {
     // Create a new course
@@ -214,6 +215,27 @@ export class InstructorIntent {
         } catch (error) {
             logger.error('InstructorIntent.getCourseStudents: Failed to fetch students', { error, courseId });
             res.status(500).json({ success: false, error: 'Failed to fetch students' });
+        }
+    }
+
+    // Remove a student from a course (admin)
+    static async removeCourseStudent(req: Request, res: Response) {
+        const { courseId, userId } = req.params;
+        logger.info('InstructorIntent.removeCourseStudent: Removing student', { courseId, userId });
+        try {
+            const removed = await EnrollmentRepository.removeEnrollment(userId, courseId);
+            if (!removed) {
+                res.status(404).json({ success: false, error: 'Enrollment not found' });
+                return;
+            }
+            res.json({ success: true, data: { removed: true } });
+        } catch (error) {
+            logger.error('InstructorIntent.removeCourseStudent: Failed to remove student', {
+                error,
+                courseId,
+                userId,
+            });
+            res.status(500).json({ success: false, error: 'Failed to remove student from course' });
         }
     }
 
