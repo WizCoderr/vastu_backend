@@ -1,24 +1,27 @@
 # Postgres → MongoDB data copy
 
-One-time / periodic **data copy** from PostgreSQL into MongoDB Atlas.
+Copy table data from **Prisma Postgres** into MongoDB Atlas.
 
-This does **not** switch the Vastu app off Prisma + Postgres. The API still uses `DATABASE_URL` (Postgres).
+The Vastu API uses Mongo (`DATABASE_URL`). This script is only for restoring a Postgres backup.
 
 ## Run
 
 ```bash
-# From vastu_backend/
-MONGODB_URI='mongodb+srv://USER:PASSWORD@cluster.mongodb.net/vastu?retryWrites=true&w=majority' \
-  bun run migrate:pg-to-mongo
+# POSTGRES_URL = Prisma Postgres
+# DATABASE_URL or MONGODB_URI = Mongo target (database name in the URI)
+bun run migrate:pg-to-mongo
 ```
 
 Options:
 
 | Env | Effect |
 |-----|--------|
+| `POSTGRES_URL` | Source (required for export) |
+| `MONGODB_URI` | Target; falls back to `DATABASE_URL` |
 | `BACKUP_ONLY=true` | Write JSON backup only |
 | `SKIP_BACKUP=true` + `BACKUP_DIR=...` | Re-import an existing backup |
-| `BACKUP_DIR=...` | Custom backup folder |
+| `DROP_EXISTING=false` | Append instead of replacing each collection |
+| `SKIP_TABLES` | Comma list (default `_prisma_migrations`) |
 
 ## Outputs
 
@@ -27,10 +30,9 @@ Under `backups/pg-to-mongo-<timestamp>/` (gitignored):
 - `<Table>.json` — raw table dumps
 - `manifest.json` — table list + counts
 - `import-result.json` — Mongo insert counts
-- `verification.json` — ☑ checklist (pg = backup = mongo)
+- `verification.json` — pg = backup = mongo
 
 ## Security
 
-- Never commit `MONGODB_URI` or `backups/`
-- Rotate Atlas passwords if they were shared in chat
-- Backup files contain password hashes and PII — treat as secrets
+- Never commit `POSTGRES_URL`, `MONGODB_URI`, or `backups/`
+- Backup files contain password hashes and PII
