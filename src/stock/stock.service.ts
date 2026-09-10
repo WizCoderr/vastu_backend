@@ -3,8 +3,8 @@ import { StockMovementType } from '../generated/prisma/client';
 import { prisma, INTERACTIVE_TX } from '../core/prisma';
 import { config } from '../core/config';
 import logger from '../utils/logger';
-import { WhatsAppService } from '../notification/whatsapp.service';
-import { WhatsAppMessages } from '../notification/whatsapp.messages';
+import { TelegramService } from '../notification/telegram.service';
+import { TelegramMessages } from '../notification/telegram.messages';
 import { applyInbound, applyOutbound, round2 } from './wac';
 import { isDeletablePurchaseMovement, replayMovements } from './replay';
 
@@ -240,16 +240,14 @@ export class StockService {
       if (newStock > threshold) return;
       if (product.lowStockAlertSentAt) return;
 
-      const adminPhone = config.whatsapp.adminPhone;
-      if (!adminPhone) {
-        logger.warn('StockService: WHATSAPP_ADMIN_PHONE not configured, skipping low stock alert');
+      if (!config.telegram.enabled || !config.telegram.adminChatId) {
+        logger.warn('StockService: Telegram admin not configured, skipping low stock alert');
         return;
       }
 
-      await WhatsAppService.queueNotification({
+      await TelegramService.queueAdminNotification({
         type: 'LOW_STOCK',
-        recipientPhone: adminPhone,
-        message: WhatsAppMessages.lowStock({ productName, stock: newStock, threshold }),
+        message: TelegramMessages.lowStock({ productName, stock: newStock, threshold }),
         referenceId: productId,
       });
 

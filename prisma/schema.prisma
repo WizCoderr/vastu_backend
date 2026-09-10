@@ -526,6 +526,34 @@ model WhatsAppNotification {
   @@index([createdAt])
 }
 
+enum TelegramNotificationType {
+  NEW_ORDER
+  LOW_STOCK
+  ORDER_CONFIRMATION
+  ORDER_STATUS
+}
+
+enum TelegramNotificationStatus {
+  PENDING
+  SENT
+  FAILED
+}
+
+model TelegramNotification {
+  id          String                      @id @default(uuid()) @map("_id")
+  type        TelegramNotificationType
+  chatId      String
+  message     String
+  status      TelegramNotificationStatus  @default(PENDING)
+  referenceId String?
+  error       String?
+  sentAt      DateTime?
+  createdAt   DateTime                    @default(now())
+
+  @@index([status])
+  @@index([createdAt])
+}
+
 model Cart {
   id        String     @id @default(uuid()) @map("_id")
   userId    String     @unique

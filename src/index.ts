@@ -5,6 +5,7 @@ import { config as coreConfig } from './core/config';
 import logger from './utils/logger';
 import { startNotificationWorker } from './notification/notification.worker';
 import { WhatsAppService } from './notification/whatsapp.service';
+import { TelegramService } from './notification/telegram.service';
 import { startPaymentWorkers, stopPaymentWorkers, shouldRunPaymentWorkers } from './payment/jobs/payment-jobs';
 
 const startBackgroundServices = () => {
@@ -22,10 +23,14 @@ const startBackgroundServices = () => {
         logger.error('Failed to initialize WhatsApp client', { error });
     });
 
-    if (!coreConfig.whatsapp.adminPhone) {
+    TelegramService.initBot().catch((error) => {
+        logger.error('Failed to initialize Telegram bot', { error });
+    });
+
+    if (!coreConfig.telegram.adminChatId) {
         logger.warn(
-            'WhatsApp: WHATSAPP_ADMIN_PHONE is not set — new order and low stock alerts will be silently skipped. ' +
-            'Add WHATSAPP_ADMIN_PHONE=91XXXXXXXXXX to your .env and restart to activate notifications.',
+            'Telegram: TELEGRAM_ADMIN_CHAT_ID is not set — order and stock alerts will be skipped. ' +
+            'Send /start to your bot, set TELEGRAM_ADMIN_CHAT_ID, and restart.',
         );
     }
 };
@@ -34,6 +39,7 @@ const shutdown = async (signal: string) => {
     logger.info(`Received ${signal}, shutting down...`);
     await stopPaymentWorkers();
     await WhatsAppService.shutdown();
+    await TelegramService.shutdown();
     process.exit(0);
 };
 

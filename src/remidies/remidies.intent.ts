@@ -1,9 +1,10 @@
 import * as reducer from './remidies.reducer';
 import { OrderStatus, DiscountType, BulkTierType, CouponProductScope, PaymentProvider } from '../generated/prisma/client';
-import { config } from '../core/config';
 import { StockService } from '../stock/stock.service';
 import { WhatsAppService, buildWaMeUrl } from '../notification/whatsapp.service';
 import { WhatsAppMessages } from '../notification/whatsapp.messages';
+import { TelegramService } from '../notification/telegram.service';
+import { TelegramMessages } from '../notification/telegram.messages';
 
 // --- CATEGORY INTENT ---
 
@@ -543,20 +544,17 @@ export const checkoutCart = async (
     shippingDetails
   );
 
-  if (config.whatsapp.adminPhone) {
-    await WhatsAppService.queueNotification({
-      type: 'NEW_ORDER',
-      recipientPhone: config.whatsapp.adminPhone,
-      message: WhatsAppMessages.newOrder({
-        orderId: result.order.id,
-        totalAmount,
-        itemCount: cart.items.length,
-        shippingName: shippingDetails.shippingName,
-        shippingCity: shippingDetails.shippingCity,
-      }),
-      referenceId: result.order.id,
-    });
-  }
+  await TelegramService.queueAdminNotification({
+    type: 'NEW_ORDER',
+    message: TelegramMessages.newOrder({
+      orderId: result.order.id,
+      totalAmount,
+      itemCount: cart.items.length,
+      shippingName: shippingDetails.shippingName,
+      shippingCity: shippingDetails.shippingCity,
+    }),
+    referenceId: result.order.id,
+  });
 
   for (const change of result.stockChanges) {
     await StockService.checkAndQueueLowStockAlert(
@@ -670,11 +668,14 @@ export const updateOrderStatus = async (orderId: string, status: OrderStatus, ad
   }
 
   const notifyStatuses: OrderStatus[] = [OrderStatus.SHIPPED, OrderStatus.DELIVERED, OrderStatus.CANCELLED];
-  if (notifyStatuses.includes(status) && status !== previousStatus && order.shippingPhone) {
-    await WhatsAppService.queueNotification({
+  if (notifyStatuses.includes(status) && status !== previousStatus) {
+    await TelegramService.queueAdminNotification({
       type: 'ORDER_STATUS',
-      recipientPhone: order.shippingPhone,
-      message: WhatsAppMessages.orderStatus({ orderId, status }),
+      message: TelegramMessages.orderStatus({
+        orderId,
+        status,
+        customerName: order.shippingName,
+      }),
       referenceId: orderId,
     });
   }
@@ -1254,19 +1255,18 @@ export const createQuickSale = async (params: {
     );
   }
 
-  if (config.whatsapp.adminPhone) {
+  {
     const shippingName = result.order.shippingName || 'Walk-in Customer (POS)';
     const shippingCity =
       result.order.shippingCity && result.order.shippingCity !== 'N/A'
         ? result.order.shippingCity
         : 'POS';
-    await WhatsAppService.queueNotification({
-      type:           'NEW_ORDER',
-      recipientPhone: config.whatsapp.adminPhone,
-      message: WhatsAppMessages.newOrder({
-        orderId:      result.order.id,
-        totalAmount:  Number(result.order.totalAmount),
-        itemCount:    params.items.length,
+    await TelegramService.queueAdminNotification({
+      type: 'NEW_ORDER',
+      message: TelegramMessages.newOrder({
+        orderId: result.order.id,
+        totalAmount: Number(result.order.totalAmount),
+        itemCount: params.items.length,
         shippingName,
         shippingCity,
       }),

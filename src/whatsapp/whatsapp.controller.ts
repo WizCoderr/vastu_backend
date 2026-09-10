@@ -2,9 +2,18 @@ import { RequestHandler } from 'express';
 import { z } from 'zod';
 import { WhatsAppService } from '../notification/whatsapp.service';
 import { config } from '../core/config';
+import { WhatsAppNotificationStatus } from '../generated/prisma/client';
 
 const notificationIdSchema = z.object({
   params: z.object({ id: z.string().uuid() }),
+});
+
+const listQuerySchema = z.object({
+  query: z.object({
+    status: z.nativeEnum(WhatsAppNotificationStatus).optional(),
+    page: z.string().regex(/^\d+$/).optional().transform(Number),
+    limit: z.string().regex(/^\d+$/).optional().transform(Number),
+  }),
 });
 
 export const getWhatsAppStatus: RequestHandler = async (_req, res, next) => {
@@ -28,6 +37,20 @@ export const getPendingWhatsAppNotifications: RequestHandler = async (_req, res,
   try {
     const notifications = await WhatsAppService.getPendingFallbackNotifications();
     res.status(200).json({ success: true, data: notifications });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const listWhatsAppNotifications: RequestHandler = async (req, res, next) => {
+  try {
+    const query = listQuerySchema.parse(req).query;
+    const result = await WhatsAppService.listNotifications({
+      status: query.status,
+      page: query.page || 1,
+      limit: query.limit || 50,
+    });
+    res.status(200).json({ success: true, data: result.notifications, meta: result.meta });
   } catch (error) {
     next(error);
   }

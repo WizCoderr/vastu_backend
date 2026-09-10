@@ -63,6 +63,14 @@ export const config = {
         chromiumPath: process.env.PUPPETEER_EXECUTABLE_PATH || '/usr/bin/chromium',
     },
 
+    telegram: {
+        botToken: trimEnv(process.env.TELEGRAM_BOT_TOKEN) || '',
+        adminChatId: trimEnv(process.env.TELEGRAM_ADMIN_CHAT_ID) || '',
+        get enabled() {
+            return process.env.TELEGRAM_ENABLED !== 'false' && !!this.botToken;
+        },
+    },
+
     stock: {
         defaultLowStockThreshold: parseInteger(process.env.DEFAULT_LOW_STOCK_THRESHOLD, 5),
     },

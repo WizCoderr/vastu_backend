@@ -3,8 +3,8 @@ import { config } from '../core/config';
 import { Result } from '../core/result';
 import { EnrollmentRepository } from '../enrollment/enrollment.repository';
 import { EmailService } from '../notification/email.service';
-import { WhatsAppService } from '../notification/whatsapp.service';
-import { WhatsAppMessages } from '../notification/whatsapp.messages';
+import { TelegramService } from '../notification/telegram.service';
+import { TelegramMessages } from '../notification/telegram.messages';
 import { buildUpiUri } from './upi/upi-uri.builder';
 import { getAllUpiDeepLinks } from './upi/upi-deep-links';
 import { generateQrCodeBase64 } from './upi/qr.service';
@@ -305,17 +305,15 @@ export class UpiPaymentService {
             couponDiscount: Number(payment.order.couponDiscount) > 0 ? Number(payment.order.couponDiscount) : undefined,
           });
 
-          if (payment.order.shippingPhone) {
-            await WhatsAppService.queueNotification({
-              type: 'ORDER_CONFIRMATION',
-              recipientPhone: payment.order.shippingPhone,
-              message: WhatsAppMessages.orderConfirmation({
-                orderId: payment.order.id,
-                totalAmount: Number(payment.amount),
-              }),
-              referenceId: payment.order.id,
-            });
-          }
+          await TelegramService.queueAdminNotification({
+            type: 'ORDER_CONFIRMATION',
+            message: TelegramMessages.orderConfirmation({
+              orderId: payment.order.id,
+              totalAmount: Number(payment.amount),
+              customerName: payment.order.shippingName || payment.user.name,
+            }),
+            referenceId: payment.order.id,
+          });
 
           const { WalletReducer } = await import('../wallet/wallet.reducer');
           void WalletReducer.upsertPendingPassForOrder(payment.order.id, payment.userId);

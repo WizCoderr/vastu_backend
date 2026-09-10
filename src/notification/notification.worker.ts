@@ -3,6 +3,7 @@ import logger from "../utils/logger";
 import { LiveClassRepository } from "../live-class/live-class.repository";
 import { NotificationService } from "./notification.service";
 import { WhatsAppService } from "./whatsapp.service";
+import { TelegramService } from "./telegram.service";
 
 // =============================================================================
 // NOTIFICATION CRON WORKER
@@ -181,6 +182,18 @@ async function processWhatsAppNotifications(): Promise<number> {
 }
 
 /**
+ * Process pending Telegram notifications
+ */
+async function processTelegramNotifications(): Promise<number> {
+    try {
+        return await TelegramService.processPendingNotifications();
+    } catch (error) {
+        logger.error("NotificationWorker: Error processing Telegram notifications", { error });
+        return 0;
+    }
+}
+
+/**
  * Main worker tick - runs all notification jobs
  */
 async function workerTick(): Promise<void> {
@@ -196,10 +209,11 @@ async function workerTick(): Promise<void> {
         logger.debug("NotificationWorker: Starting tick");
 
         // Run all jobs
-        const [liveClassCount, recordingCount, whatsAppCount] = await Promise.all([
+        const [liveClassCount, recordingCount, whatsAppCount, telegramCount] = await Promise.all([
             processLiveClassNotifications(),
             processRecordingNotifications(),
             processWhatsAppNotifications(),
+            processTelegramNotifications(),
         ]);
 
         // Auto-update class statuses
@@ -207,11 +221,12 @@ async function workerTick(): Promise<void> {
 
         const duration = Date.now() - startTime;
 
-        if (liveClassCount > 0 || recordingCount > 0 || whatsAppCount > 0) {
+        if (liveClassCount > 0 || recordingCount > 0 || whatsAppCount > 0 || telegramCount > 0) {
             logger.info("NotificationWorker: Tick completed", {
                 liveClassNotifications: liveClassCount,
                 recordingNotifications: recordingCount,
                 whatsAppNotifications: whatsAppCount,
+                telegramNotifications: telegramCount,
                 durationMs: duration,
             });
         } else {

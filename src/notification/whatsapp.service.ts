@@ -364,6 +364,32 @@ export class WhatsAppService {
     });
   }
 
+  static async listNotifications(params: {
+    status?: WhatsAppNotificationStatus;
+    page?: number;
+    limit?: number;
+  }) {
+    const page = Math.max(1, params.page ?? 1);
+    const limit = Math.min(100, Math.max(1, params.limit ?? 50));
+    const skip = (page - 1) * limit;
+    const where = params.status ? { status: params.status } : {};
+
+    const [notifications, total] = await Promise.all([
+      prisma.whatsAppNotification.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        skip,
+        take: limit,
+      }),
+      prisma.whatsAppNotification.count({ where }),
+    ]);
+
+    return {
+      notifications,
+      meta: { total, page, limit, totalPages: Math.ceil(total / limit) || 1 },
+    };
+  }
+
   static async retryNotification(id: string): Promise<WhatsAppNotificationStatus> {
     const notification = await prisma.whatsAppNotification.findUnique({ where: { id } });
     if (!notification) {

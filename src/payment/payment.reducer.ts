@@ -2,8 +2,8 @@ import { prisma } from "../core/prisma";
 import { Result } from "../core/result";
 import { EnrollmentRepository } from "../enrollment/enrollment.repository";
 import { EmailService } from "../notification/email.service";
-import { WhatsAppService } from "../notification/whatsapp.service";
-import { WhatsAppMessages } from "../notification/whatsapp.messages";
+import { TelegramService } from "../notification/telegram.service";
+import { TelegramMessages } from "../notification/telegram.messages";
 import {
   createPayuPaymentParams,
   isPayuSuccessStatus,
@@ -477,17 +477,15 @@ export class PaymentReducer {
         couponDiscount: coupon > 0 ? coupon : undefined,
       });
 
-      if (order.shippingPhone) {
-        await WhatsAppService.queueNotification({
-          type: "ORDER_CONFIRMATION",
-          recipientPhone: order.shippingPhone,
-          message: WhatsAppMessages.orderConfirmation({
-            orderId: order.id,
-            totalAmount: Number(payment.amount),
-          }),
-          referenceId: order.id,
-        });
-      }
+      await TelegramService.queueAdminNotification({
+        type: "ORDER_CONFIRMATION",
+        message: TelegramMessages.orderConfirmation({
+          orderId: order.id,
+          totalAmount: Number(payment.amount),
+          customerName: order.shippingName || payment.user.name,
+        }),
+        referenceId: order.id,
+      });
 
       const { WalletReducer } = await import("../wallet/wallet.reducer");
       void WalletReducer.upsertPendingPassForOrder(order.id, payment.userId);
