@@ -1,35 +1,33 @@
 import { Router } from "express";
-import rateLimit from "express-rate-limit";
 import { requireAuth, requireAdmin } from "../core/authMiddleware";
 import { PaymentIntent } from "../payment/payment.intent";
 import { PaymentWebhookIntent } from "../payment/payment-webhook.intent";
+import {
+  paymentCreateRateLimit,
+  paymentVerifyRateLimit,
+  webhookRateLimit,
+} from "../middleware/rate-limit.middleware";
 
 const router = Router();
-
-const paymentRateLimit = rateLimit({
-  windowMs: 60 * 1000,
-  max: 30,
-  message: { error: 'Too many payment requests' },
-});
 
 // API Discovery
 router.get("/", PaymentIntent.getPaymentApis);
 
 // Webhooks (no auth — signature verified in handler)
-router.post("/webhook/:bank", PaymentWebhookIntent.handleWebhook);
+router.post("/webhook/:bank", webhookRateLimit, PaymentWebhookIntent.handleWebhook);
 
 // PayU browser callback + S2S webhook (form-urlencoded)
-router.post("/payu/callback", PaymentIntent.handlePayuCallback);
-router.post("/payu/webhook", PaymentIntent.handlePayuWebhook);
-router.post("/payu/hash", requireAuth, paymentRateLimit, PaymentIntent.generatePayuHash);
-router.get("/payu/status/:txnid", requireAuth, paymentRateLimit, PaymentIntent.getPayuStatus);
+router.post("/payu/callback", webhookRateLimit, PaymentIntent.handlePayuCallback);
+router.post("/payu/webhook", webhookRateLimit, PaymentIntent.handlePayuWebhook);
+router.post("/payu/hash", requireAuth, paymentCreateRateLimit, PaymentIntent.generatePayuHash);
+router.get("/payu/status/:txnid", requireAuth, paymentVerifyRateLimit, PaymentIntent.getPayuStatus);
 
 // =============================================================================
 //  UPI PAYMENTS (STUDENT) — legacy when PAYMENT_PROVIDER=upi
 // =============================================================================
-router.post("/create", requireAuth, paymentRateLimit, PaymentIntent.createPayment);
-router.post("/verify", requireAuth, paymentRateLimit, PaymentIntent.verifyPayment);
-router.get("/status/:transactionId", requireAuth, paymentRateLimit, PaymentIntent.getPaymentStatus);
+router.post("/create", requireAuth, paymentCreateRateLimit, PaymentIntent.createPayment);
+router.post("/verify", requireAuth, paymentVerifyRateLimit, PaymentIntent.verifyPayment);
+router.get("/status/:transactionId", requireAuth, paymentVerifyRateLimit, PaymentIntent.getPaymentStatus);
 router.get("/history", requireAuth, PaymentIntent.getPaymentHistory);
 router.get("/invoices/:id/download", requireAuth, PaymentIntent.downloadInvoice);
 
@@ -37,14 +35,14 @@ router.get("/invoices/:id/download", requireAuth, PaymentIntent.downloadInvoice)
 //  COURSE PAYMENTS (STUDENT)
 // =============================================================================
 router.post("/free-enroll", requireAuth, PaymentIntent.freeEnroll);
-router.post("/course/order", requireAuth, paymentRateLimit, PaymentIntent.createCourseOrder);
-router.post("/course/verify", requireAuth, paymentRateLimit, PaymentIntent.verifyCoursePayment);
+router.post("/course/order", requireAuth, paymentCreateRateLimit, PaymentIntent.createCourseOrder);
+router.post("/course/verify", requireAuth, paymentVerifyRateLimit, PaymentIntent.verifyCoursePayment);
 router.get("/course/plan/:courseId", PaymentIntent.getCoursePaymentPlan);
 router.get("/course/:courseId/my-payments", requireAuth, PaymentIntent.getStudentPayments);
 router.post(
   "/course/installment/:paymentId",
   requireAuth,
-  paymentRateLimit,
+  paymentCreateRateLimit,
   PaymentIntent.payInstallment,
 );
 // Plan aliases
@@ -52,15 +50,15 @@ router.get("/plan/:courseId", PaymentIntent.getCoursePaymentPlan);
 router.post(
   "/installment/order",
   requireAuth,
-  paymentRateLimit,
+  paymentCreateRateLimit,
   PaymentIntent.payInstallment,
 );
 
 // =============================================================================
 //  REMIDIES PAYMENTS (STUDENT)
 // =============================================================================
-router.post("/remidies/order", requireAuth, paymentRateLimit, PaymentIntent.createRemidiesOrder);
-router.post("/remidies/verify", requireAuth, paymentRateLimit, PaymentIntent.verifyRemidiesPayment);
+router.post("/remidies/order", requireAuth, paymentCreateRateLimit, PaymentIntent.createRemidiesOrder);
+router.post("/remidies/verify", requireAuth, paymentVerifyRateLimit, PaymentIntent.verifyRemidiesPayment);
 
 // =============================================================================
 //  ADMIN ROUTES
@@ -70,7 +68,7 @@ router.post("/admin/reconcile", requireAdmin, PaymentIntent.reconcilePayment);
 router.post(
   "/admin/refund/:paymentId",
   requireAdmin,
-  paymentRateLimit,
+  paymentCreateRateLimit,
   PaymentIntent.refundPayment,
 );
 router.get("/admin/export", requireAdmin, PaymentIntent.exportTransactions);

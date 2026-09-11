@@ -1,7 +1,9 @@
-import type { Request, Response, NextFunction } from 'express';
+import type { Response, NextFunction } from 'express';
 import { getRedis } from '../core/redis';
 import { config } from '../core/config';
 import type { AuthRequest } from '../core/authMiddleware';
+
+const RATE_LIMIT_ERROR = 'Too many requests. Please try again later.';
 
 interface RateLimitOptions {
   windowSec: number;
@@ -26,7 +28,7 @@ export function createRedisRateLimiter(options: RateLimitOptions) {
         }
         if (count > options.max) {
           res.setHeader('Retry-After', String(options.windowSec));
-          return res.status(429).json({ success: false, error: 'Too many requests' });
+          return res.status(429).json({ success: false, error: RATE_LIMIT_ERROR });
         }
         return next();
       }
@@ -40,8 +42,9 @@ export function createRedisRateLimiter(options: RateLimitOptions) {
 
       entry.count += 1;
       if (entry.count > options.max) {
-        res.setHeader('Retry-After', String(options.windowSec));
-        return res.status(429).json({ success: false, error: 'Too many requests' });
+        const retryAfterSec = Math.max(1, Math.ceil((entry.resetAt - now) / 1000));
+        res.setHeader('Retry-After', String(retryAfterSec));
+        return res.status(429).json({ success: false, error: RATE_LIMIT_ERROR });
       }
       return next();
     } catch {
@@ -50,29 +53,49 @@ export function createRedisRateLimiter(options: RateLimitOptions) {
   };
 }
 
+const windowSec = config.security.rateLimitWindowSec;
+const { rateLimit } = config.security;
+
+export const globalRateLimit = createRedisRateLimiter({
+  windowSec,
+  max: rateLimit.globalMax,
+  keyPrefix: 'rl:global',
+});
+
+export const authLoginRateLimit = createRedisRateLimiter({
+  windowSec,
+  max: rateLimit.authLoginMax,
+  keyPrefix: 'rl:auth:login',
+});
+
+export const authPasswordResetRateLimit = createRedisRateLimiter({
+  windowSec,
+  max: rateLimit.authPasswordResetMax,
+  keyPrefix: 'rl:auth:reset',
+});
+
 export const paymentCreateRateLimit = createRedisRateLimiter({
-  windowSec: 60,
-  max: config.security.rateLimit.paymentCreateMax,
+  windowSec,
+  max: rateLimit.paymentCreateMax,
   keyPrefix: 'rl:pay:create',
   useUserId: true,
 });
 
 export const paymentVerifyRateLimit = createRedisRateLimiter({
-  windowSec: 60,
-  max: config.security.rateLimit.paymentVerifyMax,
+  windowSec,
+  max: rateLimit.paymentVerifyMax,
   keyPrefix: 'rl:pay:verify',
   useUserId: true,
 });
 
-export const paymentStatusRateLimit = createRedisRateLimiter({
-  windowSec: 60,
-  max: config.security.rateLimit.paymentStatusMax,
-  keyPrefix: 'rl:pay:status',
-  useUserId: true,
+export const webhookRateLimit = createRedisRateLimiter({
+  windowSec,
+  max: rateLimit.webhookMax,
+  keyPrefix: 'rl:pay:webhook',
 });
 
-export const webhookRateLimit = createRedisRateLimiter({
-  windowSec: 60,
-  max: config.security.rateLimit.webhookMax,
-  keyPrefix: 'rl:pay:webhook',
+export const publicRateLimit = createRedisRateLimiter({
+  windowSec,
+  max: rateLimit.publicMax,
+  keyPrefix: 'rl:public',
 });

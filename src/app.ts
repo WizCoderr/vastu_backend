@@ -14,6 +14,7 @@ import remidiesRoutes from "./routes/remidies.route";
 import walletRoutes from "./wallet/wallet.routes";
 import { config } from "./config";
 import { auditLogMiddleware } from "./middleware/audit-log.middleware";
+import { globalRateLimit } from "./middleware/rate-limit.middleware";
 const app = express();
 
 // Middleware
@@ -41,10 +42,11 @@ app.use(
       "x-client-channel",
     ],
     credentials: true,
-    exposedHeaders: ["Content-Range", "X-Content-Range"],
+    exposedHeaders: ["Content-Range", "X-Content-Range", "Retry-After"],
   }),
 );
 app.set("trust proxy", 1);
+app.use(globalRateLimit);
 app.use(compression());
 app.use(morgan("dev"));
 app.use(cookieParser());

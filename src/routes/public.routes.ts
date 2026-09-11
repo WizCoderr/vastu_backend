@@ -2,10 +2,13 @@ import { Router } from 'express';
 import { CourseIntent } from '../course/course.intent';
 import { GoogleReviewsIntent } from '../google-reviews/google-reviews.intent';
 import { remidiesCatalogRouter } from '../remidies/remidies.routes';
+import { publicRateLimit } from '../middleware/rate-limit.middleware';
 import logger from '../utils/logger';
 
 const router = Router();
 logger.info('Public routes loaded');
+
+router.use(publicRateLimit);
 
 router.get('/courses', CourseIntent.listCourses);
 router.get('/courses/:id', CourseIntent.getCourse as any);

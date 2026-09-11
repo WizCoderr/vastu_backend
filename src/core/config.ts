@@ -161,6 +161,25 @@ export const config = {
         cacheTtlTerminalSec: parseInteger(process.env.PAYMENT_STATUS_CACHE_TTL_TERMINAL_SEC, 300),
     },
 
+    /** Per-window request caps (window = rateLimitWindowSec, default 60s) */
+    security: {
+        rateLimitWindowSec: parseInteger(process.env.RATE_LIMIT_WINDOW_SEC, 60),
+        rateLimit: {
+            authLoginMax: parseInteger(process.env.RATE_LIMIT_AUTH_LOGIN_MAX, 10),
+            authPasswordResetMax: parseInteger(process.env.RATE_LIMIT_AUTH_PASSWORD_RESET_MAX, 5),
+            paymentCreateMax: parseInteger(process.env.RATE_LIMIT_PAYMENT_CREATE_MAX, 20),
+            paymentVerifyMax: parseInteger(process.env.RATE_LIMIT_PAYMENT_VERIFY_MAX, 30),
+            webhookMax: parseInteger(process.env.RATE_LIMIT_WEBHOOK_MAX, 120),
+            publicMax: parseInteger(process.env.RATE_LIMIT_PUBLIC_MAX, 120),
+            globalMax: parseInteger(process.env.RATE_LIMIT_GLOBAL_MAX, 300),
+        },
+        /** Comma-separated IPs; empty = allow all (used by optional webhook allowlist middleware) */
+        webhookIpAllowlist: (process.env.WEBHOOK_IP_ALLOWLIST || '')
+            .split(',')
+            .map((ip) => ip.trim())
+            .filter(Boolean),
+    },
+
     process: {
         /** api = HTTP only | worker = background jobs only | all = single-process (PayU) */
         role: (process.env.PROCESS_ROLE || 'all') as 'api' | 'worker' | 'all',
