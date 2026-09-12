@@ -840,28 +840,9 @@ export class PaymentReducer {
       return Result.fail("txnid and hashName are required");
     }
 
-    const allowed = new Set([
-      "payment",
-      "payment_related_details_for_mobile_sdk",
-      "vas_for_mobile_sdk",
-      "get_merchant_ibibo_codes",
-      "check_payment",
-      "verify_payment",
-      "delete_card",
-      "get_user_cards",
-      "save_user_card",
-      "edit_user_card",
-      "mcpLookup",
-      "eligibleBinsForEMI",
-      "emiAmountAccordingToInterest",
-      "paymentRelatedDetailsForMobileSdk",
-      "vasForMobileSdk",
-    ]);
-
-    if (!allowed.has(hashName) && !hashName.toLowerCase().includes("payment")) {
-      return Result.fail(`Unsupported hashName: ${hashName}`);
-    }
-
+    // Ownership + pending state is the security gate. CheckoutPro requests many
+    // dynamic hash names (get_checkout_details, get_sdk_configuration, etc.);
+    // allow them only for the authenticated user's PENDING txn.
     const studentPayment = await prisma.studentPayment.findFirst({
       where: { merchantTxnRef: txnid, userId },
     });
@@ -905,9 +886,13 @@ export class PaymentReducer {
         return Result.ok({ hashName, hash });
       }
 
+      if (!hashString) {
+        return Result.fail("hashString is required for this hashName");
+      }
+
       const hash = generateSdkHash({
         hashName,
-        hashString: hashString || "",
+        hashString,
         hashType,
         postSalt,
       });
