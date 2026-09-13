@@ -47,7 +47,7 @@ export class InstructorIntent {
                 data: {
                     title: data.title,
                     description: data.description ?? undefined,
-                    price: data.price.toString(),
+                    price: data.price,
                     thumbnail,
                     s3Key: publicId ?? undefined,
                     s3Bucket: publicId ? provider : undefined,
@@ -614,7 +614,7 @@ export class InstructorIntent {
                 const courseUpdateIs: any = {};
                 if (data.title) courseUpdateIs.title = data.title;
                 if (data.description !== undefined) courseUpdateIs.description = data.description;
-                if (data.price !== undefined && data.price > 0) courseUpdateIs.price = data.price.toString();
+                if (data.price !== undefined && data.price > 0) courseUpdateIs.price = data.price;
                 if (data.published !== undefined) courseUpdateIs.published = data.published;
                 if (data.accessDurationDays !== undefined) courseUpdateIs.accessDurationDays = data.accessDurationDays;
 

@@ -141,6 +141,51 @@ export const buildCloudFrontUrl = (key: string): string | null => {
 export const isCloudinaryUrl = (url?: string | null): boolean =>
     !!url && (url.includes('res.cloudinary.com') || url.includes('cloudinary.com'));
 
+/** List / grid thumbnails — small, auto format & quality. */
+export const CLOUDINARY_TRANSFORM_THUMB = 'f_auto,q_auto,c_fill,w_400';
+/** Product / course detail hero — capped width, auto format & quality. */
+export const CLOUDINARY_TRANSFORM_DETAIL = 'f_auto,q_auto,c_limit,w_1200';
+
+/**
+ * Inject Cloudinary delivery transforms after `/upload/` for image URLs only.
+ * Leaves non-Cloudinary URLs unchanged. Idempotent if the same transform is already present.
+ */
+export const withCloudinaryTransform = (
+    url: string | null | undefined,
+    transform: string,
+): string | null => {
+    if (!url) return null;
+    if (!transform || !isCloudinaryUrl(url)) return url;
+
+    const uploadSegment = '/upload/';
+    const idx = url.indexOf(uploadSegment);
+    if (idx === -1) return url;
+
+    // Skip raw/video delivery URLs — transforms are image-oriented.
+    if (url.includes('/raw/upload/') || url.includes('/video/upload/')) return url;
+
+    const prefix = url.slice(0, idx + uploadSegment.length);
+    let rest = url.slice(idx + uploadSegment.length);
+
+    if (rest.startsWith(`${transform}/`)) return url;
+
+    // Drop any existing transformation segment(s) before version or public id.
+    // Cloudinary transform segments contain `,` or look like `w_400`.
+    const parts = rest.split('/');
+    let start = 0;
+    while (start < parts.length) {
+        const part = parts[start];
+        if (/^v\d+$/.test(part)) break;
+        if (part.includes(',') || /^[a-z]+_/i.test(part)) {
+            start += 1;
+            continue;
+        }
+        break;
+    }
+    rest = parts.slice(start).join('/');
+    return `${prefix}${transform}/${rest}`;
+};
+
 export const extractPublicId = (url: string): { publicId: string; resourceType: CloudinaryResourceType } | null => {
     if (!isCloudinaryUrl(url)) return null;
 
@@ -209,7 +254,10 @@ export const resolveThumbnailUrl = async (
     thumbnail?: string | null,
     publicId?: string | null,
     provider?: string | null
-): Promise<string | null> => resolveMediaUrl(thumbnail, publicId, provider, 'image');
+): Promise<string | null> => {
+    const url = await resolveMediaUrl(thumbnail, publicId, provider, 'image');
+    return withCloudinaryTransform(url, CLOUDINARY_TRANSFORM_THUMB);
+};
 
 export interface SignedUploadParams {
     url: string;

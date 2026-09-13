@@ -43,6 +43,9 @@ import {
     deleteAsset,
     extractPublicId,
     resolveMediaUrl,
+    withCloudinaryTransform,
+    CLOUDINARY_TRANSFORM_THUMB,
+    CLOUDINARY_TRANSFORM_DETAIL,
 } from '../core/cloudinaryService';
 import { MediaService } from '../core/mediaService';
 import fs from 'fs';
@@ -53,9 +56,20 @@ const resolveImageUrl = async (imageUrl: string | null | undefined): Promise<str
     return resolveMediaUrl(imageUrl);
 };
 
-const signImages = async (images: string[] | null | undefined): Promise<string[]> => {
+const signImages = async (
+    images: string[] | null | undefined,
+    transform?: string,
+): Promise<string[]> => {
     if (!images || !Array.isArray(images)) return [];
-    return Promise.all(images.map(img => resolveImageUrl(img) as Promise<string>));
+    return Promise.all(
+        images.map(async (img) => {
+            const resolved = (await resolveImageUrl(img)) as string;
+            if (!resolved) return resolved;
+            return transform
+                ? (withCloudinaryTransform(resolved, transform) ?? resolved)
+                : resolved;
+        }),
+    );
 };
 
 type FormattedCart = NonNullable<Awaited<ReturnType<typeof intent.getCart>>>;
@@ -67,7 +81,7 @@ const signCartProductImages = async (cart: FormattedCart | null): Promise<Format
             ...item,
             product: {
                 ...item.product,
-                images: await signImages(item.product.images as string[]),
+                images: await signImages(item.product.images as string[], CLOUDINARY_TRANSFORM_THUMB),
             },
         }))
     );
@@ -194,18 +208,43 @@ const sanitizePublicProduct = <T extends Record<string, unknown>>(product: T) =>
   return rest;
 };
 
-const signPublicProduct = async (product: Record<string, unknown>) => ({
+/** Full product for detail pages — detail-sized Cloudinary transforms. */
+const signPublicProductDetail = async (product: Record<string, unknown>) => ({
   ...sanitizePublicProduct(product),
-  images: await signImages(product.images as string[]),
+  images: await signImages(product.images as string[], CLOUDINARY_TRANSFORM_DETAIL),
 });
+
+/**
+ * Slim catalog row: no description, first image only (thumb transform).
+ * Keeps list/all responses small so clients can start image loads sooner.
+ */
+const signPublicProductList = async (product: Record<string, unknown>) => {
+  const images = await signImages(product.images as string[], CLOUDINARY_TRANSFORM_THUMB);
+  return {
+    id: product.id,
+    name: product.name,
+    price: product.price,
+    rate: product.rate,
+    stock: product.stock,
+    categoryId: product.categoryId,
+    category: product.category,
+    isActive: product.isActive,
+    images: images.slice(0, 1),
+  };
+};
 
 export const getPublicCategories: RequestHandler = async (_req, res, next) => {
   try {
     const categories = await intent.getAllCategories();
-    const signedCategories = await Promise.all(categories.map(async (c) => ({
-      ...c,
-      image: await resolveImageUrl(c.image) || c.image,
-    })));
+    const signedCategories = await Promise.all(categories.map(async (c) => {
+      const resolved = await resolveImageUrl(c.image) || c.image;
+      return {
+        ...c,
+        image: resolved
+          ? (withCloudinaryTransform(resolved, CLOUDINARY_TRANSFORM_THUMB) ?? resolved)
+          : resolved,
+      };
+    }));
     res.status(200).json({ success: true, data: signedCategories });
   } catch (error) { next(error); }
 };
@@ -214,7 +253,7 @@ export const getPublicAllProducts: RequestHandler = async (req, res, next) => {
   try {
     const categoryId = req.query.categoryId as string | undefined;
     const products = await intent.getAllProducts({ categoryId, isActive: true });
-    const signed = await Promise.all(products.map(signPublicProduct));
+    const signed = await Promise.all(products.map((p) => signPublicProductList(p as Record<string, unknown>)));
     res.status(200).json({ success: true, data: signed, total: signed.length });
   } catch (error) { next(error); }
 };
@@ -228,7 +267,9 @@ export const getPublicProducts: RequestHandler = async (req, res, next) => {
       categoryId: query.categoryId,
       isActive: true,
     });
-    const signedProducts = await Promise.all(result.data.map(signPublicProduct));
+    const signedProducts = await Promise.all(
+      result.data.map((p) => signPublicProductList(p as Record<string, unknown>)),
+    );
     res.status(200).json({ success: true, data: signedProducts, meta: result.meta });
   } catch (error) { next(error); }
 };
@@ -241,7 +282,7 @@ export const getPublicProductById: RequestHandler = async (req, res, next) => {
       res.status(404).json({ success: false, message: 'Product not found' });
       return;
     }
-    const signed = await signPublicProduct(product as Record<string, unknown>);
+    const signed = await signPublicProductDetail(product as Record<string, unknown>);
     res.status(200).json({ success: true, data: signed });
   } catch (error) { next(error); }
 };
@@ -254,7 +295,7 @@ export const getPublicProductBySlug: RequestHandler = async (req, res, next) => 
       res.status(404).json({ success: false, message: 'Product not found' });
       return;
     }
-    const signed = await signPublicProduct(product as Record<string, unknown>);
+    const signed = await signPublicProductDetail(product as Record<string, unknown>);
     res.status(200).json({ success: true, data: signed });
   } catch (error) { next(error); }
 };
