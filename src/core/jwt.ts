@@ -17,18 +17,29 @@ export const signToken = (payload: TokenPayload): string => {
 };
 
 export const signRefreshToken = (payload: TokenPayload): string => {
-  return jwt.sign(payload, config.jwt.refreshSecret || config.jwtSecret, {
-    expiresIn: `${config.jwt.refreshTtlDays}d`,
-  });
+  return jwt.sign(
+    { ...payload, jti: randomBytes(16).toString('hex') },
+    config.jwt.refreshSecret || config.jwtSecret,
+    { expiresIn: `${config.jwt.refreshTtlDays}d` },
+  );
 };
 
 export async function createRefreshTokenRecord(userId: string, rawToken: string) {
   const tokenHash = createHash('sha256').update(rawToken).digest('hex');
   const expiresAt = new Date(Date.now() + config.jwt.refreshTtlDays * 24 * 60 * 60 * 1000);
 
-  await prisma.refreshToken.create({
-    data: { userId, tokenHash, expiresAt },
-  });
+  try {
+    await prisma.refreshToken.create({
+      data: { userId, tokenHash, expiresAt },
+    });
+  } catch (error: unknown) {
+    const code = (error as { code?: string })?.code;
+    if (code === 'P2002') {
+      // Same token hash already stored (e.g. duplicate login/register in same second)
+      return;
+    }
+    throw error;
+  }
 }
 
 export async function revokeRefreshToken(rawToken: string) {

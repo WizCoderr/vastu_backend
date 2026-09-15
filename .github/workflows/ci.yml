@@ -17,5 +17,14 @@ jobs:
       - uses: oven-sh/setup-bun@v2
       - run: bun install
       - run: bunx prisma generate
-      - run: bun test
+      - run: bun run test
       - run: bun run build
+
+  production-smoke:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install
+      - run: bun run test:production

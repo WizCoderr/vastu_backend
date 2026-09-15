@@ -15,6 +15,7 @@ import {
   buildPaymentHash,
   formatPayuAmount,
   generateTxnId,
+  getPayuMerchantSalt,
   verifyResponseHash,
 } from "../src/core/payuService";
 
@@ -23,7 +24,7 @@ const sha512 = (value: string) =>
 
 describe("PayU hash formulas (payuService)", () => {
   const key = "gtKFFx";
-  const salt = "eCwWELxi";
+  const salt = getPayuMerchantSalt();
   const txnid = "t6svtqtjRdl4ws";
   const amount = "10.00";
   const productinfo = "iPhone";
@@ -70,29 +71,27 @@ describe("PayU hash formulas (payuService)", () => {
 
   test("verifyResponseHash accepts valid reverse hash", () => {
     const status = "success";
-    const correct = sha512(
-      [
-        salt,
-        status,
-        "",
-        "",
-        "",
-        "",
-        "",
-        "",
-        "",
-        "",
-        "",
-        "",
-        "",
-        email,
-        firstname,
-        productinfo,
-        amount,
-        txnid,
-        key,
-      ].join("|"),
-    );
+    const base = [
+      status,
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      email,
+      firstname,
+      productinfo,
+      amount,
+      txnid,
+      key,
+    ].join("|");
+    const correct = sha512(`${salt}|${base}`);
 
     expect(
       verifyResponseHash({
@@ -110,29 +109,27 @@ describe("PayU hash formulas (payuService)", () => {
 
   test("verifyResponseHash rejects tampered amount", () => {
     const status = "success";
-    const correct = sha512(
-      [
-        salt,
-        status,
-        "",
-        "",
-        "",
-        "",
-        "",
-        "",
-        "",
-        "",
-        "",
-        "",
-        "",
-        email,
-        firstname,
-        productinfo,
-        amount,
-        txnid,
-        key,
-      ].join("|"),
-    );
+    const base = [
+      status,
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      email,
+      firstname,
+      productinfo,
+      amount,
+      txnid,
+      key,
+    ].join("|");
+    const correct = sha512(`${salt}|${base}`);
 
     expect(
       verifyResponseHash({
