@@ -15,11 +15,9 @@ _.log
 report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 
 # dotenv environment variable files
-
-.env.development.local
-.env.test.local
-.env.production.local
-.env.local
+.env
+.env.*
+!.env.example
 
 # Postgres → Mongo migration dumps (contain PII / password hashes)
 backups/
